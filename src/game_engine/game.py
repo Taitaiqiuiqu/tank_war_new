@@ -215,21 +215,24 @@ class GameEngine:
             elif role == "host":
                 # Host: Receive Inputs -> Update Physics -> Send State
                 # 1. Receive Inputs
-                inputs = self.network_manager.get_inputs()
-                for inp in inputs:
-                    # Apply input to Player 2 (Client)
-                    # We need a reference to Player 2 tank.
-                    # For now, let's assume tank_id=2 is client.
-                    client_tank = next((t for t in self.game_world.tanks if t.tank_id == 2), None)
-                    if client_tank:
-                        move_dir = inp.get("move", -1)
-                        if move_dir != -1:
-                            client_tank.move(move_dir)
-                        else:
-                            client_tank.stop()
-                        
-                        if inp.get("shoot"):
-                            self.game_world.spawn_bullet(client_tank)
+                messages = self.network_manager.get_inputs()
+                for msg in messages:
+                    if msg.get("type") == "input":
+                        inp = msg.get("payload")
+                        if not inp:
+                            continue
+                        # Apply input to Player 2 (Client)
+                        # Find client tank (P2)
+                        client_tank = next((t for t in self.game_world.tanks if t.tank_id == self.screen_manager.context.enemy_tank_id), None)
+                        if client_tank:
+                            move_dir = inp.get("move", -1)
+                            if move_dir != -1:
+                                client_tank.move(move_dir)
+                            else:
+                                client_tank.stop()
+                            
+                            if inp.get("shoot"):
+                                self.game_world.spawn_bullet(client_tank)
                             
                 # 2. Update Physics
                 if self.current_state == "game":
@@ -257,8 +260,10 @@ class GameEngine:
                 # Initialize Game World
                 mode = self.screen_manager.context.game_mode
                 if mode == "single":
+                    self.enable_network = False
                     self._setup_single_player_world(self.screen_manager.context.player_tank_id)
                 elif mode == "multi":
+                    self.enable_network = True
                     # Determine P1/P2 IDs
                     if self.network_manager.stats.role == "host":
                         p1_id = self.screen_manager.context.player_tank_id
