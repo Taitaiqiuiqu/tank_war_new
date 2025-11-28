@@ -1,0 +1,37 @@
+{
+    "label": {
+        "font": {
+            "name": "chinese",
+            "size": "14",
+            "regular_path": "chinese"
+        }
+    },
+    "button": {
+        "font": {
+            "name": "chinese",
+            "size": "14",
+            "regular_path": "chinese"
+        }
+    },
+    "text_entry_line": {
+        "font": {
+            "name": "chinese",
+            "size": "14",
+            "regular_path": "chinese"
+        }
+    },
+    "selection_list": {
+        "font": {
+            "name": "chinese",
+            "size": "14",
+            "regular_path": "chinese"
+        }
+    },
+    "window": {
+        "font": {
+            "name": "chinese",
+            "size": "14",
+            "regular_path": "chinese"
+        }
+    }
+}
