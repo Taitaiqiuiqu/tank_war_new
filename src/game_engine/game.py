@@ -60,13 +60,11 @@ class GameEngine:
         self.player_tank: Optional[Tank] = None
         self.enemy_controllers: List[EnemyAIController] = []
         self._movement_stack: List[int] = []
-
-        self._setup_single_player_world()
         
         # 播放游戏开始音效
         resource_manager.play_sound("start")
 
-    def _setup_single_player_world(self):
+    def _setup_single_player_world(self, player_tank_id=1):
         """初始化单机模式对象。"""
         # 使用50x50网格系统，避免墙体重叠
         # 地图：800x600，可以放置 16列 x 12行
@@ -79,7 +77,7 @@ class GameEngine:
         self.game_world.register_spawn_points("player", [player_spawn])
         self.game_world.register_spawn_points("enemy", [enemy_spawn])
 
-        self.player_tank = self.game_world.spawn_tank("player", tank_id=1, position=player_spawn)
+        self.player_tank = self.game_world.spawn_tank("player", tank_id=player_tank_id, position=player_spawn)
         enemy_tank = self.game_world.spawn_tank("enemy", tank_id=1, position=enemy_spawn)
         self.enemy_controllers.append(EnemyAIController(enemy_tank, self.game_world))
 
@@ -115,18 +113,27 @@ class GameEngine:
             y = row * grid_size
             self.game_world.spawn_wall(x, y, Wall.RIVER)
 
-    def setup_multiplayer_world(self):
+    def setup_multiplayer_world(self, p1_tank_id, p2_tank_id):
         """初始化联机模式对象"""
         self.game_world.reset()
         grid_size = 50
         
         # P1 Spawn
         p1_spawn = (self.screen_width // 2 - 100, self.screen_height - 100)
-        self.player_tank = self.game_world.spawn_tank("player", tank_id=1, position=p1_spawn)
+        # Determine which tank is local player
+        is_host = self.network_manager.stats.role == "host"
+        
+        # Spawn P1
+        p1 = self.game_world.spawn_tank("player", tank_id=p1_tank_id, position=p1_spawn)
         
         # P2 Spawn
         p2_spawn = (self.screen_width // 2 + 100, self.screen_height - 100)
-        self.game_world.spawn_tank("player", tank_id=2, position=p2_spawn)
+        p2 = self.game_world.spawn_tank("player", tank_id=p2_tank_id, position=p2_spawn)
+        
+        if is_host:
+            self.player_tank = p1
+        else:
+            self.player_tank = p2
         
         # Enemy Spawn
         enemy_spawn = (self.screen_width // 2 - 15, 50)
@@ -245,6 +252,22 @@ class GameEngine:
         # Sync State
         if self.screen_manager.current_state != self.current_state:
             self.current_state = self.screen_manager.current_state
+            
+            if self.current_state == "game":
+                # Initialize Game World
+                mode = self.screen_manager.context.game_mode
+                if mode == "single":
+                    self._setup_single_player_world(self.screen_manager.context.player_tank_id)
+                elif mode == "multi":
+                    # Determine P1/P2 IDs
+                    if self.network_manager.stats.role == "host":
+                        p1_id = self.screen_manager.context.player_tank_id
+                        p2_id = self.screen_manager.context.enemy_tank_id
+                    else:
+                        p1_id = self.screen_manager.context.enemy_tank_id
+                        p2_id = self.screen_manager.context.player_tank_id
+                        
+                    self.setup_multiplayer_world(p1_id, p2_id)
 
         self.state_manager.update()
 

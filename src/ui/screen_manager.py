@@ -23,6 +23,10 @@ class ScreenContext:
     is_host: bool = False
     username: str = "Player"
     game_mode: str = "single"  # 'single' or 'multi'
+    
+    # 坦克选择
+    player_tank_id: int = 1
+    enemy_tank_id: int = 1  # For multiplayer sync
 
 
 class BaseScreen:

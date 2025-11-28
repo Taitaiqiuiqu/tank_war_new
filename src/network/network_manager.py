@@ -35,6 +35,7 @@ class NetworkManager:
         self._running = False
         self._incoming_state = queue.Queue() # Queue for game state (from Host)
         self._incoming_input = queue.Queue() # Queue for input (from Client)
+        self._event_queue = queue.Queue() # Queue for non-state events (for Client)
         self.found_servers = [] # List of (ip, room_name)
 
     # ------------------------------------------------------------------ #
@@ -132,27 +133,59 @@ class NetworkManager:
         if self.stats.role == "client" and self.stats.connected and self._conn:
             self._send_json(self._conn, {"type": "input", "payload": input_data})
 
+    def send_lobby_update(self, tank_id: int):
+        """客户端发送大厅更新（如坦克选择）"""
+        if self.stats.role == "client" and self.stats.connected and self._conn:
+            self._send_json(self._conn, {"type": "lobby_update", "payload": {"tank_id": tank_id}})
+
+    def send_game_start(self, p1_tank_id: int, p2_tank_id: int):
+        """主机发送游戏开始信号"""
+        if self.stats.role == "host" and self.stats.connected and self._conn:
+            self._send_json(self._conn, {
+                "type": "game_start", 
+                "payload": {
+                    "p1_tank_id": p1_tank_id,
+                    "p2_tank_id": p2_tank_id
+                }
+            })
+
     def get_latest_state(self) -> Optional[dict]:
-        """客户端获取最新状态 (只取最新的，丢弃旧的)"""
+        """客户端获取最新状态 (只取最新的，丢弃旧的，非状态消息移入事件队列)"""
         latest = None
         try:
             while True:
-                latest = self._incoming_state.get_nowait()
+                msg = self._incoming_state.get_nowait()
+                if msg.get("type") == "state":
+                    latest = msg
+                else:
+                    self._event_queue.put(msg)
         except queue.Empty:
             pass
         return latest.get("payload") if latest else None
 
+    def get_events(self) -> list[dict]:
+        """客户端获取事件消息"""
+        events = []
+        try:
+            while True:
+                msg = self._event_queue.get_nowait()
+                if msg:
+                    events.append(msg)
+        except queue.Empty:
+            pass
+        return events
+
     def get_inputs(self) -> list[dict]:
-        """主机获取所有积压的客户端输入"""
-        inputs = []
+        """主机获取所有积压的消息 (Input + LobbyUpdate)"""
+        messages = []
         try:
             while True:
                 msg = self._incoming_input.get_nowait()
-                if msg and msg.get("type") == "input":
-                    inputs.append(msg.get("payload"))
+                if msg:
+                    messages.append(msg)
         except queue.Empty:
             pass
-        return inputs
+        return messages
 
     def broadcast_discovery(self):
         """客户端发送发现广播"""

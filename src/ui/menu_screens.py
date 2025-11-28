@@ -1,10 +1,11 @@
 import pygame
 import pygame_gui
-from pygame_gui.elements import UIButton, UILabel, UITextEntryLine, UISelectionList
+from pygame_gui.elements import UIButton, UILabel, UITextEntryLine, UISelectionList, UIImage
 from pygame_gui.windows import UIMessageWindow
 
 from src.ui.screen_manager import BaseScreen, ScreenContext
 from src.ui.ui_components import UIManagerWrapper
+from src.utils.resource_manager import resource_manager
 
 
 class MainMenuScreen(BaseScreen):
@@ -82,9 +83,30 @@ class SinglePlayerSetupScreen(BaseScreen):
         
         center_x = self.surface.get_width() // 2
         
+        self.tank_id = 1
+        self.context.player_tank_id = 1
+        
         UILabel(
-            relative_rect=pygame.Rect((center_x - 100, 100), (200, 50)),
+            relative_rect=pygame.Rect((center_x - 100, 50), (200, 30)),
             text="选择你的坦克",
+            manager=self.manager
+        )
+        
+        # Tank Image Display
+        self.image_rect = pygame.Rect((center_x - 50, 100), (100, 100))
+        self.tank_image_element = None
+        self._update_tank_image()
+        
+        # Selection Buttons
+        self.btn_prev = UIButton(
+            relative_rect=pygame.Rect((center_x - 160, 130), (100, 40)),
+            text='< 上一个',
+            manager=self.manager
+        )
+        
+        self.btn_next = UIButton(
+            relative_rect=pygame.Rect((center_x + 60, 130), (100, 40)),
+            text='下一个 >',
             manager=self.manager
         )
         
@@ -100,15 +122,45 @@ class SinglePlayerSetupScreen(BaseScreen):
             manager=self.manager
         )
 
+    def _update_tank_image(self):
+        if self.tank_image_element:
+            self.tank_image_element.kill()
+            
+        # Load tank image (Level 0, UP direction)
+        # resource_manager.load_tank_images returns dict[dir][frame]
+        images = resource_manager.load_tank_images('player', self.tank_id, 0)
+        if images and images.get(0):
+            surf = images[0][0]
+            # Scale up for UI
+            surf = pygame.transform.scale(surf, (100, 100))
+        else:
+            surf = pygame.Surface((100, 100))
+            surf.fill((0, 255, 0))
+            
+        self.tank_image_element = UIImage(
+            relative_rect=self.image_rect,
+            image_surface=surf,
+            manager=self.manager
+        )
+
     def handle_event(self, event: pygame.event.Event):
         super().handle_event(event)
         if event.type == pygame_gui.UI_BUTTON_PRESSED:
             if event.ui_element == self.btn_start:
                 self.context.next_state = "game"
-                # 设置单机模式标志
-                # self.context.game_mode = "single" 
+                self.context.game_mode = "single"
             elif event.ui_element == self.btn_back:
                 self.context.next_state = "menu"
+            elif event.ui_element == self.btn_prev:
+                self.tank_id -= 1
+                if self.tank_id < 1: self.tank_id = 4
+                self.context.player_tank_id = self.tank_id
+                self._update_tank_image()
+            elif event.ui_element == self.btn_next:
+                self.tank_id += 1
+                if self.tank_id > 4: self.tank_id = 1
+                self.context.player_tank_id = self.tank_id
+                self._update_tank_image()
 
     def render(self):
         self.surface.fill((40, 40, 50))
@@ -268,6 +320,27 @@ class RoomScreen(BaseScreen):
             manager=self.manager
         )
         
+        # Tank Selection UI
+        self.local_tank_id = 1
+        self.remote_tank_id = 1
+        self.context.player_tank_id = 1
+        self.context.enemy_tank_id = 1
+        
+        # Local Tank (Left side)
+        UILabel(relative_rect=pygame.Rect((50, 150), (100, 30)), text="你的坦克", manager=self.manager)
+        self.local_image_rect = pygame.Rect((50, 190), (100, 100))
+        self.local_image_elem = None
+        
+        self.btn_prev = UIButton(relative_rect=pygame.Rect((50, 300), (45, 30)), text='<', manager=self.manager)
+        self.btn_next = UIButton(relative_rect=pygame.Rect((105, 300), (45, 30)), text='>', manager=self.manager)
+        
+        # Remote Tank (Right side) - Display Only
+        UILabel(relative_rect=pygame.Rect((200, 150), (100, 30)), text="对手坦克", manager=self.manager)
+        self.remote_image_rect = pygame.Rect((200, 190), (100, 100))
+        self.remote_image_elem = None
+        
+        self._update_images()
+
         self.btn_ready = UIButton(
             relative_rect=pygame.Rect((400, 100), (150, 50)),
             text='准备',
@@ -289,6 +362,21 @@ class RoomScreen(BaseScreen):
             manager=self.manager
         )
 
+    def _update_images(self):
+        # Local
+        if self.local_image_elem: self.local_image_elem.kill()
+        images = resource_manager.load_tank_images('player', self.local_tank_id, 0)
+        surf = pygame.transform.scale(images[0][0], (100, 100)) if images and images.get(0) else pygame.Surface((100, 100))
+        self.local_image_elem = UIImage(relative_rect=self.local_image_rect, image_surface=surf, manager=self.manager)
+        
+        # Remote
+        if self.remote_image_elem: self.remote_image_elem.kill()
+        # For remote, we might want to show a different color or just the tank they picked
+        # Assuming they pick from same pool 'player'
+        images = resource_manager.load_tank_images('player', self.remote_tank_id, 0)
+        surf = pygame.transform.scale(images[0][0], (100, 100)) if images and images.get(0) else pygame.Surface((100, 100))
+        self.remote_image_elem = UIImage(relative_rect=self.remote_image_rect, image_surface=surf, manager=self.manager)
+
     def update(self, time_delta: float):
         super().update(time_delta)
         # Check connection status
@@ -298,11 +386,34 @@ class RoomScreen(BaseScreen):
             else:
                 self.player_list.set_item_list(["Player1 (Host)"])
                 
-            # Client: Check if game started (received state)
-            if not self.context.is_host:
-                state = self.network_manager.get_latest_state()
-                if state:
-                    self.context.next_state = "game"
+            if self.context.is_host:
+                # Host: Check for lobby updates from client
+                msgs = self.network_manager.get_inputs()
+                for msg in msgs:
+                    if msg.get("type") == "lobby_update":
+                        payload = msg.get("payload")
+                        if payload and "tank_id" in payload:
+                            self.remote_tank_id = payload["tank_id"]
+                            self.context.enemy_tank_id = self.remote_tank_id
+                            self._update_images()
+            else:
+                # Client: Check for game start
+                # Flush state queue to populate event queue (and get latest state if needed)
+                self.network_manager.get_latest_state()
+                
+                # Check events
+                events = self.network_manager.get_events()
+                for event in events:
+                    if event.get("type") == "game_start":
+                        payload = event.get("payload")
+                        if payload:
+                            # Game Start!
+                            self.context.enemy_tank_id = payload["p1_tank_id"] # Host is enemy for client
+                            self.context.player_tank_id = payload["p2_tank_id"] # Client is p2
+                            # Update local selection to match what Host assigned
+                            self.local_tank_id = self.context.player_tank_id
+                            
+                            self.context.next_state = "game"
 
     def handle_event(self, event: pygame.event.Event):
         super().handle_event(event)
@@ -313,7 +424,29 @@ class RoomScreen(BaseScreen):
                 self.context.next_state = "lobby"
             elif event.ui_element == self.btn_start:
                 # Host starts game
+                if hasattr(self, 'network_manager'):
+                    # Send Game Start with tank IDs
+                    # Host is p1, Client is p2
+                    self.network_manager.send_game_start(self.local_tank_id, self.remote_tank_id)
+                
+                self.context.player_tank_id = self.local_tank_id
+                self.context.enemy_tank_id = self.remote_tank_id
                 self.context.next_state = "game"
+                
+            elif event.ui_element == self.btn_prev:
+                self.local_tank_id -= 1
+                if self.local_tank_id < 1: self.local_tank_id = 4
+                self._update_images()
+                if not self.context.is_host and hasattr(self, 'network_manager'):
+                    self.network_manager.send_lobby_update(self.local_tank_id)
+                    
+            elif event.ui_element == self.btn_next:
+                self.local_tank_id += 1
+                if self.local_tank_id > 4: self.local_tank_id = 1
+                self._update_images()
+                if not self.context.is_host and hasattr(self, 'network_manager'):
+                    self.network_manager.send_lobby_update(self.local_tank_id)
+
             elif event.ui_element == self.btn_ready:
                 pass
 
