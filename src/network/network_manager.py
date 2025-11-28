@@ -57,6 +57,7 @@ class NetworkManager:
         self._udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self._udp_socket.bind(('0.0.0.0', self.BROADCAST_PORT))
+        self._udp_socket.settimeout(0.5)  # Prevent blocking
         
         # Threads
         t_tcp = threading.Thread(target=self._host_tcp_accept_loop, daemon=True)
@@ -75,6 +76,7 @@ class NetworkManager:
         self._udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self._udp_socket.bind(('0.0.0.0', 0)) # Random port
+        self._udp_socket.settimeout(0.5)  # Prevent blocking
         
         # Start discovery thread
         t_udp = threading.Thread(target=self._client_udp_listen_loop, daemon=True)
@@ -114,6 +116,23 @@ class NetworkManager:
         self._conn = None
         self._tcp_socket = None
         self._udp_socket = None
+        
+        # Reset state
+        self.stats.role = "standalone"
+        self.stats.connected = False
+        self.found_servers.clear()
+        
+        # Clear queues
+        while not self._incoming_state.empty():
+            try: self._incoming_state.get_nowait()
+            except: pass
+        while not self._incoming_input.empty():
+            try: self._incoming_input.get_nowait()
+            except: pass
+        while not self._event_queue.empty():
+            try: self._event_queue.get_nowait()
+            except: pass
+            
         print("[Network] Stopped")
 
     # ------------------------------------------------------------------ #
@@ -189,7 +208,7 @@ class NetworkManager:
 
     def broadcast_discovery(self):
         """客户端发送发现广播"""
-        if self._udp_socket:
+        if self.stats.role == "client" and self._udp_socket:
             msg = json.dumps({"type": "scan"}).encode('utf-8')
             self._udp_socket.sendto(msg, ('<broadcast>', self.BROADCAST_PORT))
 

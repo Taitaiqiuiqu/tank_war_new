@@ -240,20 +240,31 @@ class LobbyScreen(BaseScreen):
         # Let's add `network_manager` to `ScreenContext`? No, context is data.
         # Let's add it to `BaseScreen` via `ScreenManager`.
         # We need to update `ScreenManager` to accept `network_manager`.
-        pass
+        
+        # Start client discovery when entering lobby (only if not already started)
+        if hasattr(self, 'network_manager') and self.network_manager.stats.role == "standalone":
+            self.network_manager.start_client()
+            self.network_manager.broadcast_discovery()
+        
+        self.discovery_timer = 0  # Timer for periodic discovery broadcasts
 
     def update(self, time_delta: float):
         super().update(time_delta)
-        # Refresh room list from NetworkManager
-        # Assuming we have access...
-        # For now, let's implement the UI logic assuming `self.network_manager` exists.
-        # I will update ScreenManager next.
-        if hasattr(self, 'network_manager'):
-            # Update room list
-            rooms = [f"{r[1]} ({r[0]})" for r in self.network_manager.found_servers]
-            # Only update if changed to avoid flickering
-            # self.room_list.set_item_list(rooms) 
-            pass
+        # Periodic discovery broadcast
+        if hasattr(self, 'network_manager') and self.network_manager.stats.role == "client":
+            if not hasattr(self, 'discovery_timer'):
+                self.discovery_timer = 0
+                
+            self.discovery_timer += time_delta
+            if self.discovery_timer > 2.0:  # Broadcast every 2 seconds
+                self.network_manager.broadcast_discovery()
+                self.discovery_timer = 0
+            
+            # Update room list (only if UI is initialized)
+            if hasattr(self, 'room_list'):
+                rooms = [f"{r[1]} ({r[0]})" for r in self.network_manager.found_servers]
+                # UISelectionList doesn't have get_item_list, so just set it
+                self.room_list.set_item_list(rooms)
 
     def handle_event(self, event: pygame.event.Event):
         super().handle_event(event)
@@ -273,24 +284,18 @@ class LobbyScreen(BaseScreen):
                     # Parse IP from string "RoomName (IP)"
                     ip = selected.split('(')[-1].strip(')')
                     if hasattr(self, 'network_manager'):
-                        self.network_manager.start_client()
+                        # Don't call start_client again, already started in on_enter
                         if self.network_manager.connect_to_server(ip):
                             self.context.next_state = "room"
                             self.context.is_host = False
                             self.context.game_mode = "multi"
-                else:
-                    # If no selection, just start client discovery for now
-                    if hasattr(self, 'network_manager'):
-                        self.network_manager.start_client()
-                        self.network_manager.broadcast_discovery()
                         
             elif event.ui_element == self.btn_refresh:
                 if hasattr(self, 'network_manager'):
-                    self.network_manager.start_client()
+                    # Just broadcast, don't restart client
                     self.network_manager.broadcast_discovery()
-                    # Update list
-                    rooms = [f"{r[1]} ({r[0]})" for r in self.network_manager.found_servers]
-                    self.room_list.set_item_list(rooms)
+                    # Clear found servers to force refresh
+                    self.network_manager.found_servers.clear()
 
             elif event.ui_element == self.btn_back:
                 if hasattr(self, 'network_manager'):
