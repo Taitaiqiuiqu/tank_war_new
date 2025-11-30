@@ -45,17 +45,27 @@ class StateManager:
             return {}
             
         tanks = []
+        my_tank_data = None  # Separate data for client's own tank
+        
         for tank in self.world.tanks:
             if tank.active:
-                tanks.append({
+                tank_data = {
                     "id": tank.tank_id,
                     "type": tank.tank_type,
                     "x": tank.x,
                     "y": tank.y,
                     "dir": tank.direction,
+                    "vx": tank.velocity_x,  # For animation
+                    "vy": tank.velocity_y,  # For animation
                     "hp": getattr(tank, "health", 100),
-                    "shield": tank.shield_active
-                })
+                    "shield": tank.shield_active,
+                    "skin": getattr(tank, "skin_id", 1)
+                }
+                tanks.append(tank_data)
+                
+                # Mark client's tank separately (will be set by game.py)
+                if hasattr(self, 'client_tank_id') and tank.tank_id == self.client_tank_id:
+                    my_tank_data = tank_data
                 
         bullets = []
         for bullet in self.world.bullets:
@@ -81,12 +91,30 @@ class StateManager:
         for idx, wall in enumerate(self.world.walls):
             if not wall.active:
                 destroyed_walls.append(idx)
+        
+        if destroyed_walls:
+            print(f"[Host] Encoding {len(destroyed_walls)} destroyed walls: {destroyed_walls[:5]}...")
+            print(f"[Host] Total walls: {len(self.world.walls)}")
                 
+        # 4. Sync Explosions
+        explosions = []
+        for exp in self.world.explosions:
+            if exp.visible:
+                explosions.append({
+                    "x": exp.x,
+                    "y": exp.y,
+                    "r": exp.radius,
+                    "d": exp.duration,
+                    "e": exp.elapsed
+                })
+
         return {
             "ts": time.time(),
             "tanks": tanks,
+            "my_tank": my_tank_data,  # Client's own tank for reconciliation
             "bullets": bullets,
             "d_walls": destroyed_walls,
+            "exps": explosions,
             "meta": {
                 "over": self.world.game_over,
                 "win": self.world.winner
@@ -100,61 +128,90 @@ class StateManager:
             
         # 1. Sync Tanks
         remote_tanks = {t["id"]: t for t in state.get("tanks", [])}
+        local_player_id = getattr(self, 'local_player_id', None)
         
         # Update existing or spawn new
         for t_data in remote_tanks.values():
             tid = t_data["id"]
+            
+            # Skip local player (handled by client-side prediction)
+            if local_player_id and tid == local_player_id:
+                continue
+            
             # Find tank by ID
             tank = next((t for t in self.world.tanks if t.tank_id == tid), None)
             if tank:
-                # Interpolation could go here, but for now direct set
+                # Update position and state
                 tank.x = t_data["x"]
                 tank.y = t_data["y"]
                 tank.direction = t_data["dir"]
                 tank.shield_active = t_data["shield"]
                 tank.active = True
+                tank.rect.topleft = (tank.x, tank.y)
+                
+                # Update animation based on velocity
+                vx = t_data.get("vx", 0)
+                vy = t_data.get("vy", 0)
+                is_moving = (vx != 0 or vy != 0)
+                
+                if is_moving:
+                    # Animate tank
+                    tank.animation_counter += 1
+                    if tank.animation_counter >= tank.animation_speed:
+                        tank.animation_counter = 0
+                        tank.animation_frame = (tank.animation_frame + 1) % len(tank.images[tank.direction])
+                    if tank.images[tank.direction]:
+                        tank.current_image = tank.images[tank.direction][tank.animation_frame]
+                else:
+                    # Static tank
+                    tank.animation_frame = 0
+                    tank.animation_counter = 0
+                    if tank.images[tank.direction]:
+                        tank.current_image = tank.images[tank.direction][0]
             else:
                 # Spawn new tank
-                new_tank = self.world.spawn_tank(t_data["type"], tid, (t_data["x"], t_data["y"]))
+                new_tank = self.world.spawn_tank(t_data["type"], tid, (t_data["x"], t_data["y"]), skin_id=t_data.get("skin", 1))
                 new_tank.direction = t_data["dir"]
+                if new_tank.images[new_tank.direction]:
+                    new_tank.current_image = new_tank.images[new_tank.direction][0]
         
-        # Disable missing tanks (except local player? No, Client is dumb terminal)
+        # Disable missing tanks
         for tank in self.world.tanks:
             if tank.tank_id not in remote_tanks:
-                tank.active = False # Or destroy?
+                tank.active = False
                 
-        # 2. Sync Bullets (Re-create all for simplicity, or pool)
-        # Clearing and re-adding is easiest for sync but heavy.
-        # Let's try to match? No, bullets are transient.
-        # Simple approach: Clear all bullets and spawn from state.
-        self.world.bullets.clear() # This might kill local bullets visual effects?
-        # Ideally we want to identify bullets, but they don't have IDs.
-        # For MVP, just replacing is fine.
+        # 2. Sync Bullets
+        self.world.bullets.clear() 
+        
+        from src.game_engine.bullet import Bullet
         for b_data in state.get("bullets", []):
-            # We need an owner for the bullet, find it by ID
             owner_id = b_data["owner"]
             owner = next((t for t in self.world.tanks if t.tank_id == owner_id), None)
-            if owner:
-                b = self.world.spawn_bullet(owner)
-                if b:
-                    b.x = b_data["x"]
-                    b.y = b_data["y"]
-                    b.direction = b_data["dir"]
-            else:
-                # Owner might be dead or unknown, just spawn generic bullet?
-                # Or skip.
-                pass
+            b = Bullet(b_data["x"], b_data["y"], b_data["dir"], owner=owner)
+            self.world.add_object(b)
                 
         # 3. Sync Walls
         d_walls = set(state.get("d_walls", []))
+        if d_walls:
+            print(f"[Client] Applying {len(d_walls)} destroyed walls: {list(d_walls)[:5]}...")
+            print(f"[Client] Total walls: {len(self.world.walls)}")
         for idx, wall in enumerate(self.world.walls):
             if idx in d_walls:
                 wall.active = False
+                wall.visible = False
             else:
                 wall.active = True
+                wall.visible = True
+
+        # 4. Sync Explosions
+        self.world.explosions.clear()
+        from src.game_engine.game_world import Explosion
+        for exp_data in state.get("exps", []):
+            exp = Explosion(exp_data["x"] + exp_data["r"], exp_data["y"] + exp_data["r"], exp_data["r"], exp_data["d"])
+            exp.elapsed = exp_data["e"]
+            self.world.add_object(exp)
                 
-        # 4. Meta
+        # 5. Meta
         meta = state.get("meta", {})
         self.world.game_over = meta.get("over", False)
         self.world.winner = meta.get("win")
-

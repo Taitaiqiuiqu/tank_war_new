@@ -1,6 +1,25 @@
+# Initialize i18n FIRST before any pygame_gui imports
+import src.ui.init_i18n  # This must be first!
+
 import pygame
 import pygame_gui
 from pygame_gui.ui_manager import UIManager
+
+# Monkey patch pygame_gui's translate function to bypass i18n errors
+# This prevents the AttributeError when i18n is not properly configured
+try:
+    from pygame_gui.core import utility
+    original_translate = utility.translate
+    
+    def patched_translate(text, **kwargs):
+        """Bypass i18n translation to prevent errors"""
+        if text is None:
+            return ""
+        return str(text)
+    
+    utility.translate = patched_translate
+except Exception as e:
+    print(f"Warning: Could not patch pygame_gui translate: {e}")
 
 class UIManagerWrapper:
     """pygame_gui UIManager 的封装类，用于统一管理 UI 主题和资源。"""
@@ -46,6 +65,12 @@ class UIManagerWrapper:
     def get_manager(self):
         """获取原始 manager 实例"""
         return self.manager
+
+    def set_resolution(self, width: int, height: int):
+        """设置新的分辨率"""
+        self.screen_width = width
+        self.screen_height = height
+        self.manager.set_window_resolution((width, height))
 
 
 def get_chinese_font() -> str | None:

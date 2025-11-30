@@ -61,7 +61,7 @@ class BaseScreen:
         """处理输入事件（子类按需覆盖）。"""
         # 默认将事件传递给 UI 管理器
         # 子类可以在此基础上添加自定义事件处理
-        pass
+        self.ui_manager.handle_event(event)
 
     def update(self, time_delta: float):
         """执行屏幕动画/状态更新。"""
@@ -70,6 +70,15 @@ class BaseScreen:
     def render(self):
         """将屏幕绘制到 surface。"""
         pass
+
+    def get_window_manager(self):
+        """获取GameEngine的WindowManager实例"""
+        # 通过ScreenManager获取WindowManager
+        # 这里假设ScreenManager会被设置到上下文中或通过其他方式可访问
+        screen_manager = getattr(self.context, 'screen_manager', None)
+        if screen_manager and hasattr(screen_manager, 'get_window_manager'):
+            return screen_manager.get_window_manager()
+        return None
 
 
 class TextScreen(BaseScreen):
@@ -101,6 +110,10 @@ class ScreenManager:
         self.screens: Dict[str, BaseScreen] = {}
         self.current_state = "menu"
         self.network_manager = network_manager
+        self.game_engine = None  # 将由GameEngine设置
+        
+        # 将ScreenManager设置到上下文中，以便BaseScreen可以访问
+        self.context.screen_manager = self
         
         # 初始化 UI 管理器
         width, height = surface.get_size()
@@ -112,6 +125,32 @@ class ScreenManager:
         current_screen = self._get_current_screen()
         if current_screen:
             current_screen.on_enter()
+
+    def get_window_manager(self):
+        """获取GameEngine的WindowManager实例"""
+        if self.game_engine and hasattr(self.game_engine, 'window_manager'):
+            return self.game_engine.window_manager
+        return None
+
+    def notify_window_resized(self, width, height):
+        """
+        通知窗口大小已改变，更新UI管理器
+        
+        Args:
+            width: 新的窗口宽度
+            height: 新的窗口高度
+        """
+        # 更新UI管理器以适应新窗口大小
+        self.ui_manager.set_resolution(width, height)
+        
+        # 重新初始化当前屏幕以适应新窗口大小
+        current_screen = self._get_current_screen()
+        if current_screen:
+            # 保持当前状态不变，只刷新UI元素
+            current_screen.on_exit()
+            current_screen.on_enter()
+            
+        print(f"ScreenManager已响应窗口大小改变: {width}x{height}")
 
     # ------------------------------------------------------------------ #
     # 生命周期接口（供 GameEngine 调用）
@@ -158,16 +197,25 @@ class ScreenManager:
         if state not in self.screens:
             raise ValueError(f"未注册的屏幕状态: {state}")
             
+        old_state = self.current_state
+        
         # 退出旧屏幕
         old_screen = self._get_current_screen()
         if old_screen:
             old_screen.on_exit()
-            
+        
+        # 先更新状态，这样 resize 回调会通知到新屏幕
         self.current_state = state
+        
+        # 如果退出的是地图编辑器屏幕，恢复窗口大小
+        if old_state == "map_editor" and self.game_engine and self.game_engine.window_manager:
+            self.game_engine.window_manager.restore_original_size()
         
         # 进入新屏幕
         new_screen = self._get_current_screen()
         if new_screen:
+            # 确保UI管理器是空的
+            self.ui_manager.clear()
             new_screen.on_enter()
 
     def register_screen(self, state: str, screen: BaseScreen):
@@ -179,6 +227,7 @@ class ScreenManager:
     def _init_default_screens(self):
         # 延迟导入以避免循环依赖
         from src.ui.menu_screens import MainMenuScreen, SinglePlayerSetupScreen, LobbyScreen, RoomScreen
+        from src.ui.map_editor_screen import MapEditorScreen
         
         self.register_screen(
             "menu",
@@ -217,6 +266,10 @@ class ScreenManager:
                 description="即将支持自定义键位/音量",
                 network_manager=self.network_manager
             ),
+        )
+        self.register_screen(
+            "map_editor",
+            MapEditorScreen(self.surface, self.context, self.ui_manager, self.network_manager)
         )
 
     def _get_current_screen(self) -> Optional[BaseScreen]:

@@ -153,18 +153,29 @@ class NetworkManager:
             self._send_json(self._conn, {"type": "input", "payload": input_data})
 
     def send_lobby_update(self, tank_id: int):
-        """客户端发送大厅更新（如坦克选择）"""
-        if self.stats.role == "client" and self.stats.connected and self._conn:
+        """发送大厅更新（如坦克选择）"""
+        if self.stats.connected and self._conn:
             self._send_json(self._conn, {"type": "lobby_update", "payload": {"tank_id": tank_id}})
 
-    def send_game_start(self, p1_tank_id: int, p2_tank_id: int):
+    def send_map_selection(self, map_name: str):
+        """发送地图选择更新"""
+        if self.stats.connected and self._conn:
+            self._send_json(self._conn, {"type": "map_selection", "payload": {"map_name": map_name}})
+
+    def send_ready_state(self, is_ready: bool):
+        """发送准备状态"""
+        if self.stats.connected and self._conn:
+            self._send_json(self._conn, {"type": "ready_state", "payload": {"is_ready": is_ready}})
+
+    def send_game_start(self, p1_tank_id: int, p2_tank_id: int, map_name: str = "default"):
         """主机发送游戏开始信号"""
         if self.stats.role == "host" and self.stats.connected and self._conn:
             self._send_json(self._conn, {
                 "type": "game_start", 
                 "payload": {
                     "p1_tank_id": p1_tank_id,
-                    "p2_tank_id": p2_tank_id
+                    "p2_tank_id": p2_tank_id,
+                    "map_name": map_name
                 }
             })
 
@@ -210,7 +221,14 @@ class NetworkManager:
         """客户端发送发现广播"""
         if self.stats.role == "client" and self._udp_socket:
             msg = json.dumps({"type": "scan"}).encode('utf-8')
-            self._udp_socket.sendto(msg, ('<broadcast>', self.BROADCAST_PORT))
+            # Try multiple broadcast addresses
+            targets = ['<broadcast>', '255.255.255.255', '127.0.0.1']
+            for target in targets:
+                try:
+                    self._udp_socket.sendto(msg, (target, self.BROADCAST_PORT))
+                except Exception as e:
+                    # print(f"[Network] Broadcast to {target} failed: {e}")
+                    pass
 
     # ------------------------------------------------------------------ #
     # 内部线程循环
@@ -246,8 +264,11 @@ class NetworkManager:
                         "timestamp": time.time()
                     }).encode('utf-8')
                     self._udp_socket.sendto(response, addr)
-            except Exception:
+            except socket.timeout:
                 pass
+            except Exception as e:
+                if self._running and getattr(e, 'winerror', 0) != 10054:
+                    print(f"[Network] UDP Respond Error: {e}")
 
     def _client_udp_listen_loop(self):
         while self._running:
@@ -258,8 +279,11 @@ class NetworkManager:
                     server_info = (addr[0], msg.get("room_name", "Unknown"))
                     if server_info not in self.found_servers:
                         self.found_servers.append(server_info)
-            except Exception:
+            except socket.timeout:
                 pass
+            except Exception as e:
+                if self._running and getattr(e, 'winerror', 0) != 10054:
+                    print(f"[Network] UDP Listen Error: {e}")
 
     def _tcp_recv_loop(self, sock: socket.socket, out_queue: queue.Queue):
         """通用TCP接收循环 (Line-delimited JSON)"""

@@ -13,18 +13,20 @@ class Tank(GameObject):
     DOWN = 2
     LEFT = 3
     
-    def __init__(self, x, y, tank_type='player', tank_id=1):
+    def __init__(self, x, y, tank_type='player', tank_id=1, skin_id=1):
         """初始化坦克
         
         Args:
             x: 位置x坐标
             y: 位置y坐标
             tank_type: 坦克类型 'player' 或 'enemy'
-            tank_id: 坦克ID，用于区分不同的坦克
+            tank_id: 坦克ID，用于区分不同的坦克(逻辑ID)
+            skin_id: 皮肤ID，用于显示(视觉ID)
         """
         super().__init__(x, y, 30, 30)
         self.tank_type = tank_type
         self.tank_id = tank_id
+        self.skin_id = skin_id
         self.direction = self.UP
         self.speed = 2
         self.shoot_cooldown = 0
@@ -53,11 +55,11 @@ class Tank(GameObject):
             图像字典，按方向和状态组织
         """
         # 使用资源管理器加载真实图片
-        images = resource_manager.load_tank_images(self.tank_type, self.tank_id, level=0)
+        images = resource_manager.load_tank_images(self.tank_type, self.skin_id, level=0)
         
         # 如果加载失败，使用占位符
         if not images or not any(images.values()):
-            print(f"警告: 无法加载坦克图片 {self.tank_type}_{self.tank_id}，使用占位符")
+            print(f"警告: 无法加载坦克图片 {self.tank_type}_{self.skin_id}，使用占位符")
             images = self._create_placeholder_images()
         
         return images

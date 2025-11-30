@@ -144,10 +144,11 @@ class GameWorld:
         tank_type: str = "player",
         tank_id: int = 1,
         position: Optional[Tuple[int, int]] = None,
+        skin_id: int = 1,
     ) -> Tank:
         """生成坦克并加入世界。"""
         spawn_pos = position or self._get_spawn_point(tank_type)
-        tank = Tank(spawn_pos[0], spawn_pos[1], tank_type=tank_type, tank_id=tank_id)
+        tank = Tank(spawn_pos[0], spawn_pos[1], tank_type=tank_type, tank_id=tank_id, skin_id=skin_id)
         self.add_object(tank)
         return tank
 
@@ -191,8 +192,10 @@ class GameWorld:
                 obj.update()
                 self._check_boundaries(obj)
             else:
-                self._on_object_destroyed(obj)
-                self.remove_object(obj)
+                # Don't remove walls to preserve indices for network sync
+                if not isinstance(obj, Wall):
+                    self._on_object_destroyed(obj)
+                    self.remove_object(obj)
 
         self._check_collisions()
         self._check_game_status()

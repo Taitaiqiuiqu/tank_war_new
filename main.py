@@ -1,5 +1,6 @@
 import pygame
 import sys
+
 from src.game_engine.game import GameEngine
 
 # 初始化pygame
