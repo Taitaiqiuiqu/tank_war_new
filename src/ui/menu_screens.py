@@ -741,6 +741,14 @@ class RoomScreen(BaseScreen):
                             self.context.enemy_tank_id = payload["p1_tank_id"]
                             self.context.player_tank_id = payload["p2_tank_id"]
                             self.context.selected_map = payload.get("map_name", "default")
+                            
+                            # Store map data if provided by host
+                            if "map_data" in payload:
+                                self.context.received_map_data = payload["map_data"]
+                                print(f"[Client] 接收到地图数据: {self.context.selected_map}")
+                            else:
+                                self.context.received_map_data = None
+                            
                             self.local_tank_id = self.context.player_tank_id
                             
                             self.context.next_state = "game"
@@ -780,8 +788,16 @@ class RoomScreen(BaseScreen):
             elif event.ui_element == self.btn_start:
                 # Host starts game
                 if hasattr(self, 'network_manager'):
-                    # Send Game Start with tank IDs and map
-                    self.network_manager.send_game_start(self.local_tank_id, self.remote_tank_id, self.selected_map)
+                    # Load map data to send to client
+                    map_data = None
+                    if self.selected_map != "default":
+                        from src.utils.map_loader import map_loader
+                        map_data = map_loader.load_map(self.selected_map)
+                        if map_data:
+                            print(f"[Host] 发送地图数据: {self.selected_map}")
+                    
+                    # Send Game Start with tank IDs, map name, and map data
+                    self.network_manager.send_game_start(self.local_tank_id, self.remote_tank_id, self.selected_map, map_data)
                 
                 self.context.player_tank_id = self.local_tank_id
                 self.context.enemy_tank_id = self.remote_tank_id

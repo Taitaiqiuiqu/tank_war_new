@@ -167,16 +167,22 @@ class NetworkManager:
         if self.stats.connected and self._conn:
             self._send_json(self._conn, {"type": "ready_state", "payload": {"is_ready": is_ready}})
 
-    def send_game_start(self, p1_tank_id: int, p2_tank_id: int, map_name: str = "default"):
-        """主机发送游戏开始信号"""
+    def send_game_start(self, p1_tank_id: int, p2_tank_id: int, map_name: str = "default", map_data: dict = None):
+        """主机发送游戏开始信号（包含完整地图数据）"""
         if self.stats.role == "host" and self.stats.connected and self._conn:
+            payload = {
+                "p1_tank_id": p1_tank_id,
+                "p2_tank_id": p2_tank_id,
+                "map_name": map_name
+            }
+            
+            # Include map data if provided
+            if map_data:
+                payload["map_data"] = map_data
+            
             self._send_json(self._conn, {
                 "type": "game_start", 
-                "payload": {
-                    "p1_tank_id": p1_tank_id,
-                    "p2_tank_id": p2_tank_id,
-                    "map_name": map_name
-                }
+                "payload": payload
             })
 
     def get_latest_state(self) -> Optional[dict]:

@@ -212,7 +212,13 @@ class GameEngine:
         
         # Load Map
         map_data = None
-        if map_name != "default":
+        
+        # Priority 1: Use received map data from host (for client)
+        if hasattr(self.screen_manager.context, 'received_map_data') and self.screen_manager.context.received_map_data:
+            map_data = self.screen_manager.context.received_map_data
+            print(f"使用接收的地图数据: {map_data.get('name', map_name)}")
+        # Priority 2: Load from local file
+        elif map_name != "default":
             map_data = map_loader.load_map(map_name)
             if map_data:
                 print(f"加载联机地图: {map_data.get('name', map_name)}")
@@ -358,12 +364,6 @@ class GameEngine:
                 # 2. Client-Side Prediction: Update local player tank
                 if self.player_tank and self.player_tank.active:
                     self.player_tank.update()  # Run local physics for immediate response
-                    # Debug: Print tank state every 30 frames
-                    if not hasattr(self, '_debug_frame_count'):
-                        self._debug_frame_count = 0
-                    self._debug_frame_count += 1
-                    if self._debug_frame_count % 30 == 0:
-                        print(f"[Client Debug] vx={self.player_tank.velocity_x}, vy={self.player_tank.velocity_y}, moving={self.player_tank.is_moving}, frame={self.player_tank.animation_frame}")
                 
                 # 2.5. Update bullets and explosions (for visual effects)
                 # Bullets need to move and check collisions
