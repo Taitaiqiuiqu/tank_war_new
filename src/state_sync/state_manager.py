@@ -134,40 +134,46 @@ class StateManager:
         for t_data in remote_tanks.values():
             tid = t_data["id"]
             
-            # Skip local player (handled by client-side prediction)
-            if local_player_id and tid == local_player_id:
-                continue
-            
             # Find tank by ID
             tank = next((t for t in self.world.tanks if t.tank_id == tid), None)
             if tank:
-                # Update position and state
-                tank.x = t_data["x"]
-                tank.y = t_data["y"]
-                tank.direction = t_data["dir"]
-                tank.shield_active = t_data["shield"]
-                tank.active = True
-                tank.rect.topleft = (tank.x, tank.y)
-                
-                # Update animation based on velocity
-                vx = t_data.get("vx", 0)
-                vy = t_data.get("vy", 0)
-                is_moving = (vx != 0 or vy != 0)
-                
-                if is_moving:
-                    # Animate tank
-                    tank.animation_counter += 1
-                    if tank.animation_counter >= tank.animation_speed:
-                        tank.animation_counter = 0
-                        tank.animation_frame = (tank.animation_frame + 1) % len(tank.images[tank.direction])
-                    if tank.images[tank.direction]:
-                        tank.current_image = tank.images[tank.direction][tank.animation_frame]
+                # For local player: only update critical state (health, active), skip position (client-side prediction)
+                if local_player_id and tid == local_player_id:
+                    # Only sync critical state that client can't predict
+                    tank.health = t_data.get("hp", 100)
+                    tank.shield_active = t_data["shield"]
+                    # Don't override position/direction for local player (client-side prediction)
                 else:
-                    # Static tank
-                    tank.animation_frame = 0
-                    tank.animation_counter = 0
-                    if tank.images[tank.direction]:
-                        tank.current_image = tank.images[tank.direction][0]
+                    # For remote players: full state sync
+                    tank.x = t_data["x"]
+                    tank.y = t_data["y"]
+                    tank.direction = t_data["dir"]
+                    tank.shield_active = t_data["shield"]
+                    tank.rect.topleft = (tank.x, tank.y)
+                    
+                    # Update animation based on velocity
+                    vx = t_data.get("vx", 0)
+                    vy = t_data.get("vy", 0)
+                    is_moving = (vx != 0 or vy != 0)
+                    
+                    if is_moving:
+                        # Animate tank
+                        tank.animation_counter += 1
+                        if tank.animation_counter >= tank.animation_speed:
+                            tank.animation_counter = 0
+                            tank.animation_frame = (tank.animation_frame + 1) % len(tank.images[tank.direction])
+                        if tank.images[tank.direction]:
+                            tank.current_image = tank.images[tank.direction][tank.animation_frame]
+                    else:
+                        # Static tank
+                        tank.animation_frame = 0
+                        tank.animation_counter = 0
+                        if tank.images[tank.direction]:
+                            tank.current_image = tank.images[tank.direction][0]
+                
+                # Always mark as active if in remote state
+                tank.active = True
+                tank.visible = True
             else:
                 # Spawn new tank
                 new_tank = self.world.spawn_tank(t_data["type"], tid, (t_data["x"], t_data["y"]), skin_id=t_data.get("skin", 1))
@@ -175,10 +181,14 @@ class StateManager:
                 if new_tank.images[new_tank.direction]:
                     new_tank.current_image = new_tank.images[new_tank.direction][0]
         
-        # Disable missing tanks
+        # Disable missing tanks (including local player if dead!)
         for tank in self.world.tanks:
             if tank.tank_id not in remote_tanks:
+                # Debug log for tank disabling
+                if tank.tank_type == "player":
+                    print(f"[Client] Disabling tank {tank.tank_id} (Not in remote). Local Player ID: {local_player_id}")
                 tank.active = False
+                tank.visible = False
                 
         # 2. Sync Bullets
         self.world.bullets.clear() 

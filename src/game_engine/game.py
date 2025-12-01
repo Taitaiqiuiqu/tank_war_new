@@ -123,6 +123,7 @@ class GameEngine:
         
     def _setup_single_player_world(self, player_tank_id=1, map_name="default"):
         """初始化单机模式对象。"""
+        self._movement_stack.clear()
         grid_size = 50
         
         # Try to load custom map
@@ -134,17 +135,18 @@ class GameEngine:
         
         if map_data:
             # Load from map file
-            # Spawn points
+            # Spawn points - Single player mode only uses first player spawn
             player_spawns = map_data.get('player_spawns', [[400, 550]])
             enemy_spawns = map_data.get('enemy_spawns', [[400, 50]])
             
+            # Single player: only use first player spawn point
             player_spawn = tuple(player_spawns[0]) if player_spawns else (400, 550)
             enemy_spawn = tuple(enemy_spawns[0]) if enemy_spawns else (400, 50)
             
             self.game_world.register_spawn_points("player", [player_spawn])
             self.game_world.register_spawn_points("enemy", [enemy_spawn])
             
-            self.player_tank = self.game_world.spawn_tank("player", tank_id=player_tank_id, position=player_spawn)
+            self.player_tank = self.game_world.spawn_tank("player", tank_id=player_tank_id, position=player_spawn, skin_id=player_tank_id)
             enemy_tank = self.game_world.spawn_tank("enemy", tank_id=1, position=enemy_spawn)
             self.enemy_controllers.append(EnemyAIController(enemy_tank, self.game_world))
             
@@ -208,6 +210,7 @@ class GameEngine:
     def setup_multiplayer_world(self, p1_tank_id, p2_tank_id, map_name="default"):
         """初始化联机模式对象"""
         self.game_world.reset()
+        self._movement_stack.clear()
         grid_size = 50
         
         # Load Map
@@ -230,13 +233,14 @@ class GameEngine:
         
         if map_data:
             # Use map spawns if available
+            # Multiplayer mode: use both player spawn points (P1 and P2)
             player_spawns = map_data.get('player_spawns', [])
             if len(player_spawns) >= 2:
                 p1_spawn = tuple(player_spawns[0])
                 p2_spawn = tuple(player_spawns[1])
             elif len(player_spawns) == 1:
+                # Fallback: if only one spawn, offset P2 from P1
                 p1_spawn = tuple(player_spawns[0])
-                # P2 uses default offset from P1 or hardcoded
                 p2_spawn = (p1_spawn[0] + 100, p1_spawn[1])
             
             enemy_spawns = map_data.get('enemy_spawns', [])
