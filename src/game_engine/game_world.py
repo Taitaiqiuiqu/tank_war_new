@@ -57,6 +57,50 @@ class Explosion(GameObject):
             pygame.draw.circle(screen, self.color_cycle[color_index], self.get_center(), current_radius)
 
 
+class Star(GameObject):
+    """星星特效，在敌人生成前显示。"""
+
+    def __init__(self, x: int, y: int, duration: int = 90, callback=None):
+        super().__init__(x - 25, y - 25, 50, 50)
+        self.duration = duration
+        self.elapsed = 0
+        self.callback = callback  # 特效结束后的回调函数
+        
+        # 加载星星动画帧
+        self.frames = resource_manager.get_star_frames()
+        if not self.frames:
+            # 备用：黄色闪烁圆形
+            self.frames = None
+
+    def update(self):
+        super().update()
+        self.elapsed += 1
+        if self.elapsed >= self.duration:
+            # 特效结束，调用回调
+            if self.callback:
+                self.callback()
+            self.destroy()
+
+    def render(self, screen):
+        if not self.visible:
+            return
+        
+        if self.frames:
+            # 循环播放星星动画
+            frame_index = (self.elapsed // 5) % len(self.frames)
+            frame = self.frames[frame_index]
+            # 居中显示星星
+            x = self.x + (self.width - frame.get_width()) // 2
+            y = self.y + (self.height - frame.get_height()) // 2
+            screen.blit(frame, (x, y))
+        else:
+            # 备用：绘制闪烁的黄色圆形
+            alpha = int(128 + 127 * (self.elapsed % 10) / 10)
+            surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            pygame.draw.circle(surface, (255, 255, 0, alpha), (self.width // 2, self.height // 2), 20)
+            screen.blit(surface, (self.x, self.y))
+
+
 class GameWorld:
     """游戏世界管理类，负责管理所有游戏对象和核心玩法逻辑。"""
 
@@ -77,6 +121,7 @@ class GameWorld:
         self.bullets: List[Bullet] = []
         self.walls: List[Wall] = []
         self.explosions: List[Explosion] = []
+        self.stars: List[Star] = []
 
         # 游戏状态
         self.game_over = False
@@ -84,6 +129,11 @@ class GameWorld:
         self.player_scores: Dict[str, int] = {}
         self.spawn_points: Dict[str, List[Tuple[int, int]]] = {"player": [], "enemy": []}
         self.debug_overlay = False
+        
+        # 坦克生命系统
+        self.tank_lives: Dict[int, int] = {}  # {tank_id: remaining_lives}
+        self.tank_info: Dict[int, Dict] = {}  # {tank_id: {type, skin_id, spawn_point}}
+        self.respawn_timers: Dict[int, int] = {}  # {tank_id: frames_until_respawn}
 
     # ----------------------------------------------------------------------
     # 对象管理
@@ -101,6 +151,8 @@ class GameWorld:
             self.walls.append(game_object)
         elif isinstance(game_object, Explosion):
             self.explosions.append(game_object)
+        elif isinstance(game_object, Star):
+            self.stars.append(game_object)
 
     def remove_object(self, game_object: GameObject):
         """移除游戏对象。"""
@@ -115,6 +167,8 @@ class GameWorld:
             self.walls.remove(game_object)
         elif isinstance(game_object, Explosion) and game_object in self.explosions:
             self.explosions.remove(game_object)
+        elif isinstance(game_object, Star) and game_object in self.stars:
+            self.stars.remove(game_object)
 
     def reset(self):
         """清空世界，方便重新开局或重新同步。"""
@@ -123,6 +177,7 @@ class GameWorld:
         self.bullets.clear()
         self.walls.clear()
         self.explosions.clear()
+        self.stars.clear()
         self.game_over = False
         self.winner = None
 
@@ -145,11 +200,41 @@ class GameWorld:
         tank_id: int = 1,
         position: Optional[Tuple[int, int]] = None,
         skin_id: int = 1,
-    ) -> Tank:
-        """生成坦克并加入世界。"""
+        delay_spawn: bool = False,
+    ) -> Optional[Tank]:
+        """生成坦克并加入世界。
+        
+        Args:
+            delay_spawn: 如果True，延迟生成（用于显示星星特效后再生成）
+        """
         spawn_pos = position or self._get_spawn_point(tank_type)
+        
+        # 如果需要延迟生成（用于重生），先显示星星，然后在回调中生成坦克
+        if delay_spawn:
+            def spawn_callback():
+                self._create_tank(tank_type, tank_id, spawn_pos, skin_id)
+            self.trigger_star(spawn_pos, callback=spawn_callback)
+            return None
+        else:
+            # 直接生成（初始生成）
+            return self._create_tank(tank_type, tank_id, spawn_pos, skin_id)
+    
+    def _create_tank(self, tank_type: str, tank_id: int, spawn_pos: Tuple[int, int], skin_id: int) -> Tank:
+        """内部方法：创建并添加坦克。"""
         tank = Tank(spawn_pos[0], spawn_pos[1], tank_type=tank_type, tank_id=tank_id, skin_id=skin_id)
+        # 自动激活出生护盾
+        tank.activate_shield()
         self.add_object(tank)
+        
+        # 记录坦克信息用于重生
+        if tank_id not in self.tank_lives:
+            self.tank_lives[tank_id] = 3  # 默认3条命
+        self.tank_info[tank_id] = {
+            "type": tank_type,
+            "skin_id": skin_id,
+            "spawn_point": spawn_pos
+        }
+        
         return tank
 
     def spawn_bullet(self, tank: Tank) -> Optional[Bullet]:
@@ -181,6 +266,11 @@ class GameWorld:
         """在指定位置创建爆炸效果。"""
         explosion = Explosion(center[0], center[1], radius=radius, duration=duration)
         self.add_object(explosion)
+    
+    def trigger_star(self, center: Tuple[int, int], duration: int = 90, callback=None):
+        """在指定位置创建星星特效。"""
+        star = Star(center[0] + 15, center[1] + 15, duration=duration, callback=callback)
+        self.add_object(star)
 
     # ----------------------------------------------------------------------
     # 游戏循环
@@ -196,6 +286,13 @@ class GameWorld:
                 if not isinstance(obj, Wall):
                     self._on_object_destroyed(obj)
                     self.remove_object(obj)
+        
+        # 处理重生计时器
+        for tank_id in list(self.respawn_timers.keys()):
+            self.respawn_timers[tank_id] -= 1
+            if self.respawn_timers[tank_id] <= 0:
+                self._respawn_tank(tank_id)
+                del self.respawn_timers[tank_id]
 
         self._check_collisions()
         self._check_game_status()
@@ -221,6 +318,11 @@ class GameWorld:
         for explosion in self.explosions:
             if explosion.visible:
                 explosion.render(screen)
+        
+        # 4.5. 星星特效
+        for star in self.stars:
+            if star.visible:
+                star.render(screen)
 
         # 5. 草地覆盖
         for wall in self.walls:
@@ -245,8 +347,32 @@ class GameWorld:
             # 播放爆炸音效
             resource_manager.play_sound("boom")
             self.trigger_explosion(obj.get_center(), radius=28, duration=24)
+            
+            # 处理坦克重生
+            tank_id = obj.tank_id
+            if tank_id in self.tank_lives:
+                self.tank_lives[tank_id] -= 1
+                if self.tank_lives[tank_id] > 0:
+                    # 还有命，90帧后重生 (3秒)
+                    self.respawn_timers[tank_id] = 90
+                # 否则不重生，游戏结束由_check_game_status判断
         elif isinstance(obj, Bullet):
             self.trigger_explosion(obj.get_center(), radius=12, duration=10)
+    
+    def _respawn_tank(self, tank_id: int):
+        """重生坦克"""
+        if tank_id not in self.tank_info:
+            return
+        
+        info = self.tank_info[tank_id]
+        # 重新生成坦克，延迟生成以显示星星特效
+        self.spawn_tank(
+            tank_type=info["type"],
+            tank_id=tank_id,
+            position=info["spawn_point"],
+            skin_id=info["skin_id"],
+            delay_spawn=True  # 先显示星星，然后生成
+        )
 
     def _check_boundaries(self, obj: GameObject):
         """确保对象在世界范围内。"""

@@ -86,7 +86,10 @@ class ResourceManager:
         for i in range(2):
             img_path = os.path.join(shield_path, f"bornShield{i}.png")
             if os.path.exists(img_path):
-                self.shield_frames.append(pygame.image.load(img_path).convert_alpha())
+                img = pygame.image.load(img_path).convert_alpha()
+                # 缩放到30x30以匹配坦克大小
+                img = pygame.transform.scale(img, (30, 30))
+                self.shield_frames.append(img)
     
     def _load_star_frames(self):
         """加载星星动画帧（敌人生成特效）"""
@@ -105,6 +108,7 @@ class ResourceManager:
             "enemy_move": "enemy.move.wav",
             "fire": "fire.wav",
             "player_move": "player.move.wav",
+            "player_idle": "玩家原地待机音效.mp3",
             "start": "start.wav",
             "brick_destroy": "砖块消除.wav",
         }

@@ -43,6 +43,7 @@ class Tank(GameObject):
         # 移动状态
         self.is_moving = False
         self.move_sound_playing = False
+        self.idle_sound_playing = False
         
         # 加载坦克图像
         self.images = self._load_tank_images()
@@ -119,6 +120,11 @@ class Tank(GameObject):
         
         # 播放移动音效
         if self.is_moving and not self.move_sound_playing:
+            # 停止待机音效
+            if self.tank_type == "player" and self.idle_sound_playing:
+                resource_manager.stop_sound("player_idle")
+                self.idle_sound_playing = False
+            
             sound_name = "player_move" if self.tank_type == "player" else "enemy_move"
             resource_manager.play_sound(sound_name, loops=-1)
             self.move_sound_playing = True
@@ -126,6 +132,14 @@ class Tank(GameObject):
             sound_name = "player_move" if self.tank_type == "player" else "enemy_move"
             resource_manager.stop_sound(sound_name)
             self.move_sound_playing = False
+        
+        # 播放待机音效（仅玩家坦克）
+        if self.tank_type == "player" and not self.is_moving and not self.idle_sound_playing:
+            resource_manager.play_sound("player_idle", loops=-1)
+            self.idle_sound_playing = True
+        elif self.tank_type == "player" and self.is_moving and self.idle_sound_playing:
+            resource_manager.stop_sound("player_idle")
+            self.idle_sound_playing = False
     
     def render(self, screen):
         """渲染坦克"""
@@ -139,17 +153,15 @@ class Tank(GameObject):
                     # 使用护盾动画
                     frame_index = (pygame.time.get_ticks() // 100) % len(shield_frames)
                     shield_img = shield_frames[frame_index]
-                    # 居中显示护盾
-                    shield_x = self.x + (self.width - shield_img.get_width()) // 2
-                    shield_y = self.y + (self.height - shield_img.get_height()) // 2
-                    screen.blit(shield_img, (shield_x, shield_y))
+                    # 护盾与坦克大小一致，直接覆盖在坦克上
+                    screen.blit(shield_img, (self.x, self.y))
                 else:
                     # 备用：绘制半透明的护盾圆圈
-                    shield_surface = pygame.Surface((self.width + 10, self.height + 10), pygame.SRCALPHA)
-                    pygame.draw.circle(shield_surface, (0, 191, 255, 100), 
-                                       (self.width // 2 + 5, self.height // 2 + 5), 
-                                       self.width // 2 + 5)
-                    screen.blit(shield_surface, (self.x - 5, self.y - 5))
+                    shield_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+                    pygame.draw.circle(shield_surface, (0, 191, 255, 128), 
+                                       (self.width // 2, self.height // 2), 
+                                       self.width // 2)
+                    screen.blit(shield_surface, (self.x, self.y))
     
     def move(self, direction):
         """移动坦克

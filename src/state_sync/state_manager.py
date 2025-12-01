@@ -77,16 +77,7 @@ class StateManager:
                     "owner": getattr(bullet.owner, "tank_id", -1)
                 })
                 
-        walls = []
-        # Optimization: Only send destroyed walls or changes? 
-        # For simplicity, we assume static map for now, or send all walls if dynamic.
-        # But sending 100+ walls every frame is bad. 
-        # Let's assume walls are static for this MVP, or only sync destroyed ones.
-        # Better: Send wall states (active/inactive) as a bitmask or list of destroyed indices.
-        # For now, let's just sync tanks and bullets for smooth movement.
-        # Walls can be synced less frequently or via events.
-        # Let's stick to the plan: "Serialize Tanks... Bullets... Walls".
-        # To avoid huge packets, we'll only send walls that are *inactive* (destroyed).
+        # Optimization: Only send destroyed walls
         destroyed_walls = []
         for idx, wall in enumerate(self.world.walls):
             if not wall.active:
@@ -94,9 +85,8 @@ class StateManager:
         
         if destroyed_walls:
             print(f"[Host] Encoding {len(destroyed_walls)} destroyed walls: {destroyed_walls[:5]}...")
-            print(f"[Host] Total walls: {len(self.world.walls)}")
                 
-        # 4. Sync Explosions
+        # Sync Explosions
         explosions = []
         for exp in self.world.explosions:
             if exp.visible:
@@ -108,6 +98,23 @@ class StateManager:
                     "e": exp.elapsed
                 })
 
+        # Sync Stars
+        stars = []
+        for star in self.world.stars:
+            if star.visible:
+                stars.append({
+                    "x": star.x,
+                    "y": star.y,
+                    "d": star.duration,
+                    "e": star.elapsed
+                })
+
+        # Sync Respawn System
+        respawn_data = {
+            "lives": dict(self.world.tank_lives),
+            "timers": dict(self.world.respawn_timers)
+        }
+
         return {
             "ts": time.time(),
             "tanks": tanks,
@@ -115,6 +122,8 @@ class StateManager:
             "bullets": bullets,
             "d_walls": destroyed_walls,
             "exps": explosions,
+            "stars": stars,
+            "respawn": respawn_data,
             "meta": {
                 "over": self.world.game_over,
                 "win": self.world.winner
@@ -204,7 +213,6 @@ class StateManager:
         d_walls = set(state.get("d_walls", []))
         if d_walls:
             print(f"[Client] Applying {len(d_walls)} destroyed walls: {list(d_walls)[:5]}...")
-            print(f"[Client] Total walls: {len(self.world.walls)}")
         for idx, wall in enumerate(self.world.walls):
             if idx in d_walls:
                 wall.active = False
@@ -220,8 +228,39 @@ class StateManager:
             exp = Explosion(exp_data["x"] + exp_data["r"], exp_data["y"] + exp_data["r"], exp_data["r"], exp_data["d"])
             exp.elapsed = exp_data["e"]
             self.world.add_object(exp)
+            
+        # 5. Sync Stars
+        self.world.stars.clear()
+        from src.game_engine.game_world import Star
+        for star_data in state.get("stars", []):
+            star = Star(star_data["x"] + 25, star_data["y"] + 25, star_data["d"])  # x,y passed to init are center-25, so we reverse it or just pass correct coords
+            # Wait, Star init takes x,y as top-left?
+            # Star(x, y) calls super(x-25, y-25) if we look at previous edit?
+            # Let's check Star.__init__ in game_world.py
+            # It was: def __init__(self, x, y, ...): super().__init__(x-25, y-25, 50, 50)
+            # So x,y passed to __init__ are the CENTER coordinates.
+            # In encode_state, we sent star.x, star.y which are TOP-LEFT coordinates (from GameObject).
+            # So we need to convert back to center for Star constructor, OR modify Star constructor, OR just set properties.
+            # Easiest: Create Star and set properties.
+            # But Star.__init__ loads frames.
+            # Let's pass center coordinates: x + width/2, y + height/2.
+            # Star width is 50. So center is x+25, y+25.
+            star = Star(star_data["x"] + 25, star_data["y"] + 25, star_data["d"])
+            star.elapsed = star_data["e"]
+            self.world.add_object(star)
+
+        # 6. Sync Respawn System
+        respawn_data = state.get("respawn", {})
+        if respawn_data:
+            # Update lives
+            remote_lives = respawn_data.get("lives", {})
+            self.world.tank_lives = {int(k): v for k, v in remote_lives.items()}
+            
+            # Update timers
+            remote_timers = respawn_data.get("timers", {})
+            self.world.respawn_timers = {int(k): v for k, v in remote_timers.items()}
                 
-        # 5. Meta
+        # 6. Meta
         meta = state.get("meta", {})
         self.world.game_over = meta.get("over", False)
         self.world.winner = meta.get("win")
