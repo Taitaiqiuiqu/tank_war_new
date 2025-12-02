@@ -397,11 +397,19 @@ class GameEngine:
                         error = ((server_x - local_x)**2 + (server_y - local_y)**2)**0.5
                         
                         if error > 5:  # Threshold for correction
-                            # Smooth correction using lerp
-                            alpha = 0.3  # Correction strength
-                            self.player_tank.x = local_x + (server_x - local_x) * alpha
-                            self.player_tank.y = local_y + (server_y - local_y) * alpha
-                            self.player_tank.rect.topleft = (self.player_tank.x, self.player_tank.y)
+                            # If error is HUGE, it's a teleport/respawn that state_manager missed (or lag)
+                            # But state_manager should handle respawns now.
+                            # Still, if error is very large, snap immediately.
+                            if error > 50:
+                                self.player_tank.x = server_x
+                                self.player_tank.y = server_y
+                                self.player_tank.rect.topleft = (server_x, server_y)
+                            else:
+                                # Smooth correction using lerp
+                                alpha = 0.3  # Correction strength
+                                self.player_tank.x = local_x + (server_x - local_x) * alpha
+                                self.player_tank.y = local_y + (server_y - local_y) * alpha
+                                self.player_tank.rect.topleft = (self.player_tank.x, self.player_tank.y)
                     
                     # Apply state for other entities (other players, bullets, etc.)
                     self.state_manager.decode_state(remote_state)

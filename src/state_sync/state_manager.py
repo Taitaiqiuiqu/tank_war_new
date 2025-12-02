@@ -151,7 +151,27 @@ class StateManager:
                     # Only sync critical state that client can't predict
                     tank.health = t_data.get("hp", 100)
                     tank.shield_active = t_data["shield"]
-                    # Don't override position/direction for local player (client-side prediction)
+                    
+                    # Special Case: Respawn / Teleport
+                    # If tank was inactive (dead) and now active, OR position difference is huge -> Force Sync
+                    # Calculate distance squared
+                    dx = tank.x - t_data["x"]
+                    dy = tank.y - t_data["y"]
+                    dist_sq = dx*dx + dy*dy
+                    
+                    was_inactive = not tank.active
+                    is_teleport = dist_sq > 2500  # > 50 pixels diff (one grid size)
+                    
+                    if was_inactive or is_teleport:
+                        print(f"[Client] Local Player Respawn/Teleport detected! Force syncing pos. Dist: {dist_sq**0.5:.1f}")
+                        tank.x = t_data["x"]
+                        tank.y = t_data["y"]
+                        tank.direction = t_data["dir"]
+                        tank.rect.topleft = (tank.x, tank.y)
+                        tank.active = True
+                        tank.visible = True
+                    
+                    # Don't override position/direction for local player (client-side prediction) normally
                 else:
                     # For remote players: full state sync
                     tank.x = t_data["x"]
