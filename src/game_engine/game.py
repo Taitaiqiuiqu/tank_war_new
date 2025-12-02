@@ -17,22 +17,25 @@ from src.game_engine.window_manager import WindowManager
 class EnemyAIController:
     """极简敌人 AI：随机改变方向并偶尔射击。"""
 
-    def __init__(self, tank: Tank, world: GameWorld):
-        self.tank = tank
+    def __init__(self, tank_id: int, world: GameWorld):
+        self.tank_id = tank_id
         self.world = world
         self.direction_timer = 0
         self.shoot_timer = 0
 
     def update(self):
-        if not self.tank.active:
+        # 动态查找坦克实例
+        tank = next((t for t in self.world.tanks if t.tank_id == self.tank_id and t.active), None)
+        if not tank:
             return
+
         self.direction_timer -= 1
         self.shoot_timer -= 1
         if self.direction_timer <= 0:
-            self.tank.move(random.choice([Tank.UP, Tank.RIGHT, Tank.DOWN, Tank.LEFT]))
+            tank.move(random.choice([Tank.UP, Tank.RIGHT, Tank.DOWN, Tank.LEFT]))
             self.direction_timer = random.randint(30, 120)
         if self.shoot_timer <= 0:
-            self.world.spawn_bullet(self.tank)
+            self.world.spawn_bullet(tank)
             self.shoot_timer = random.randint(90, 180)
 
 
@@ -124,6 +127,7 @@ class GameEngine:
     def _setup_single_player_world(self, player_tank_id=1, map_name="default"):
         """初始化单机模式对象。"""
         self._movement_stack.clear()
+        self.enemy_controllers.clear()  # 清除旧的控制器
         grid_size = 50
         
         # Try to load custom map
@@ -147,8 +151,8 @@ class GameEngine:
             self.game_world.register_spawn_points("enemy", [enemy_spawn])
             
             self.player_tank = self.game_world.spawn_tank("player", tank_id=player_tank_id, position=player_spawn, skin_id=player_tank_id)
-            enemy_tank = self.game_world.spawn_tank("enemy", tank_id=1, position=enemy_spawn)
-            self.enemy_controllers.append(EnemyAIController(enemy_tank, self.game_world))
+            self.game_world.spawn_tank("enemy", tank_id=1, position=enemy_spawn)
+            self.enemy_controllers.append(EnemyAIController(1, self.game_world))
             
             # Load walls
             walls = map_data.get('walls', [])
@@ -167,8 +171,8 @@ class GameEngine:
             self.game_world.register_spawn_points("enemy", [enemy_spawn])
 
             self.player_tank = self.game_world.spawn_tank("player", tank_id=player_tank_id, position=player_spawn)
-            enemy_tank = self.game_world.spawn_tank("enemy", tank_id=1, position=enemy_spawn)
-            self.enemy_controllers.append(EnemyAIController(enemy_tank, self.game_world))
+            self.game_world.spawn_tank("enemy", tank_id=1, position=enemy_spawn)
+            self.enemy_controllers.append(EnemyAIController(1, self.game_world))
 
             # 使用50x50网格创建地图布局
             # 中间一排砖墙（第6行，y=300）
@@ -211,6 +215,7 @@ class GameEngine:
         """初始化联机模式对象"""
         self.game_world.reset()
         self._movement_stack.clear()
+        self.enemy_controllers.clear()  # 清除旧的控制器
         grid_size = 50
         
         # Load Map
@@ -262,8 +267,8 @@ class GameEngine:
             self.player_tank = p2
         
         # Enemy Spawn
-        enemy_tank = self.game_world.spawn_tank("enemy", tank_id=3, position=enemy_spawn)
-        self.enemy_controllers.append(EnemyAIController(enemy_tank, self.game_world))
+        self.game_world.spawn_tank("enemy", tank_id=3, position=enemy_spawn)
+        self.enemy_controllers.append(EnemyAIController(3, self.game_world))
         
         # Map Walls
         if map_data:

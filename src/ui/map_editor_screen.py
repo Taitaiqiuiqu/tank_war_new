@@ -38,8 +38,8 @@ class MapEditorScreen(BaseScreen):
         super().__init__(surface, context, ui_manager, network_manager)
         self.current_tool = self.TOOL_BRICK
         self.walls = []  # List of {x, y, type}
-        self.player_spawn = [400, 550]
-        self.enemy_spawn = [400, 50]
+        self.player_spawns = [[400, 550]]
+        self.enemy_spawns = [[400, 50]]
         self.is_dragging = False
         self.map_name = "new_map"
         
@@ -249,7 +249,7 @@ class MapEditorScreen(BaseScreen):
                 self.is_dragging = True
                 self._handle_click(event.pos)
             elif event.button == 3:  # Right click
-                self._remove_wall_at(event.pos)
+                self._remove_item_at(event.pos)
         
         elif event.type == pygame.MOUSEBUTTONUP:
             if event.button == 1:
@@ -277,39 +277,43 @@ class MapEditorScreen(BaseScreen):
             return
         
         if self.current_tool == self.TOOL_ERASER:
-            self._remove_wall_at(pos)
+            self._remove_item_at(pos)
         elif self.current_tool == self.TOOL_PLAYER_SPAWN:
             # 检查该位置是否有墙体或老鹰或敌人出生点
             has_wall = any(w['x'] == grid_x and w['y'] == grid_y for w in self.walls)
-            overlaps_enemy_spawn = grid_x == self.enemy_spawn[0] and grid_y == self.enemy_spawn[1]
-            # 如果没有墙体和敌人出生点，则放置玩家出生点
-            if not has_wall and not overlaps_enemy_spawn:
-                self.player_spawn = [grid_x, grid_y]
+            overlaps_enemy = any(s[0] == grid_x and s[1] == grid_y for s in self.enemy_spawns)
+            overlaps_player = any(s[0] == grid_x and s[1] == grid_y for s in self.player_spawns)
+            
+            # 如果没有墙体、敌人出生点且不重复，则放置玩家出生点
+            if not has_wall and not overlaps_enemy and not overlaps_player:
+                self.player_spawns.append([grid_x, grid_y])
         elif self.current_tool == self.TOOL_ENEMY_SPAWN:
             # 检查该位置是否有墙体或老鹰或玩家出生点
             has_wall = any(w['x'] == grid_x and w['y'] == grid_y for w in self.walls)
-            overlaps_player_spawn = grid_x == self.player_spawn[0] and grid_y == self.player_spawn[1]
-            # 如果没有墙体和玩家出生点，则放置敌人出生点
-            if not has_wall and not overlaps_player_spawn:
-                self.enemy_spawn = [grid_x, grid_y]
+            overlaps_player = any(s[0] == grid_x and s[1] == grid_y for s in self.player_spawns)
+            overlaps_enemy = any(s[0] == grid_x and s[1] == grid_y for s in self.enemy_spawns)
+            
+            # 如果没有墙体、玩家出生点且不重复，则放置敌人出生点
+            if not has_wall and not overlaps_player and not overlaps_enemy:
+                self.enemy_spawns.append([grid_x, grid_y])
         else:
             # 放置墙体或老鹰，使用游戏坐标系
             # 检查是否与玩家出生点重叠
-            overlaps_player_spawn = grid_x == self.player_spawn[0] and grid_y == self.player_spawn[1]
+            overlaps_player = any(s[0] == grid_x and s[1] == grid_y for s in self.player_spawns)
             # 检查是否与敌人出生点重叠
-            overlaps_enemy_spawn = grid_x == self.enemy_spawn[0] and grid_y == self.enemy_spawn[1]
+            overlaps_enemy = any(s[0] == grid_x and s[1] == grid_y for s in self.enemy_spawns)
             # 检查该位置是否已有墙体（如果有则不再添加，包括其他墙体和老鹰）
             wall_exists = any(w['x'] == grid_x and w['y'] == grid_y for w in self.walls)
             
             # 只有当不重叠时才放置墙体或老鹰
-            if not wall_exists and not overlaps_player_spawn and not overlaps_enemy_spawn:
+            if not wall_exists and not overlaps_player and not overlaps_enemy:
                 # 先移除该位置的墙体（为了避免意外的重复）
                 self.walls = [w for w in self.walls if not (w['x'] == grid_x and w['y'] == grid_y)]
                 # 添加新墙体或老鹰
                 self.walls.append({'x': grid_x, 'y': grid_y, 'type': self.current_tool})
     
-    def _remove_wall_at(self, pos):
-        """删除指定位置的墙体"""
+    def _remove_item_at(self, pos):
+        """删除指定位置的物品（墙体或出生点）"""
         x, y = pos
         if y < 90:
             return
@@ -317,9 +321,14 @@ class MapEditorScreen(BaseScreen):
         grid_x = (x // self.GRID_SIZE) * self.GRID_SIZE
         grid_y = ((y - 90) // self.GRID_SIZE) * self.GRID_SIZE
         
-        # 查找并删除对应位置的墙体
-        # 注意：这里的grid_y已经是游戏坐标系中的y坐标
+        # 删除墙体
         self.walls = [w for w in self.walls if not (w['x'] == grid_x and w['y'] == grid_y)]
+        
+        # 删除玩家出生点
+        self.player_spawns = [s for s in self.player_spawns if not (s[0] == grid_x and s[1] == grid_y)]
+        
+        # 删除敌人出生点
+        self.enemy_spawns = [s for s in self.enemy_spawns if not (s[0] == grid_x and s[1] == grid_y)]
     
     def _save_map(self):
         """保存地图"""
@@ -334,8 +343,8 @@ class MapEditorScreen(BaseScreen):
             "width": self.MAP_WIDTH,
             "height": self.GAME_HEIGHT,  # 保存游戏区域高度600，不包含工具栏
             "walls": self.walls,        # 墙体坐标已经是正确的游戏坐标系
-            "player_spawns": [self.player_spawn],
-            "enemy_spawns": [self.enemy_spawn]
+            "player_spawns": self.player_spawns,
+            "enemy_spawns": self.enemy_spawns
         }
         
         # 确保maps目录存在
@@ -366,11 +375,13 @@ class MapEditorScreen(BaseScreen):
                 map_data = json.load(f)
             
             self.walls = map_data.get('walls', [])
-            player_spawns = map_data.get('player_spawns', [[400, 550]])
-            enemy_spawns = map_data.get('enemy_spawns', [[400, 50]])
+            self.player_spawns = map_data.get('player_spawns', [[400, 550]])
+            self.enemy_spawns = map_data.get('enemy_spawns', [[400, 50]])
             
-            self.player_spawn = player_spawns[0] if player_spawns else [400, 550]
-            self.enemy_spawn = enemy_spawns[0] if enemy_spawns else [400, 50]
+            # 兼容旧格式（如果是单个坐标列表的列表，但我们现在直接用列表）
+            # 实际上 load_map 返回的已经是列表了，这里主要是确保默认值
+            if not self.player_spawns: self.player_spawns = [[400, 550]]
+            if not self.enemy_spawns: self.enemy_spawns = [[400, 50]]
             
             print(f"地图已加载: {filename}")
         except Exception as e:
@@ -467,14 +478,16 @@ class MapEditorScreen(BaseScreen):
         
         # 绘制出生点 - 渲染时将游戏坐标系转换为屏幕坐标系
         # 玩家出生点 - 蓝色圆圈
-        player_x = self.player_spawn[0] + self.GRID_SIZE // 2
-        player_y = self.player_spawn[1] + self.GRID_SIZE // 2 + canvas_y_offset
-        pygame.draw.circle(self.surface, (0, 0, 255), (player_x, player_y), 15, 3)
+        for spawn in self.player_spawns:
+            player_x = spawn[0] + self.GRID_SIZE // 2
+            player_y = spawn[1] + self.GRID_SIZE // 2 + canvas_y_offset
+            pygame.draw.circle(self.surface, (0, 0, 255), (player_x, player_y), 15, 3)
         
         # 敌人出生点 - 红色圆圈
-        enemy_x = self.enemy_spawn[0] + self.GRID_SIZE // 2
-        enemy_y = self.enemy_spawn[1] + self.GRID_SIZE // 2 + canvas_y_offset
-        pygame.draw.circle(self.surface, (255, 0, 0), (enemy_x, enemy_y), 15, 3)
+        for spawn in self.enemy_spawns:
+            enemy_x = spawn[0] + self.GRID_SIZE // 2
+            enemy_y = spawn[1] + self.GRID_SIZE // 2 + canvas_y_offset
+            pygame.draw.circle(self.surface, (255, 0, 0), (enemy_x, enemy_y), 15, 3)
         
         # 绘制当前工具提示
         tool_names = {
