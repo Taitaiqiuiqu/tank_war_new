@@ -31,6 +31,10 @@ class Wall(GameObject):
         self.shoot_through = wall_type == self.GRASS or wall_type == self.RIVER  # 子弹可以穿过草地和河流
         self.hides_tank = wall_type == self.GRASS  # 只有草地可以隐藏坦克
         
+        # 为可摧毁墙体设置生命值（修复health属性未定义的bug）
+        if self.destructible:
+            self.health = 100  # 砖墙和基地的生命值
+        
         # 加载墙体图像
         self.image = self._load_wall_image()
     

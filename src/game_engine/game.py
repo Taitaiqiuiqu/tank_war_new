@@ -24,8 +24,8 @@ class EnemyAIController:
         self.shoot_timer = 0
 
     def update(self):
-        # 动态查找坦克实例
-        tank = next((t for t in self.world.tanks if t.tank_id == self.tank_id and t.active), None)
+        # 动态查找坦克实例 - 只控制敌人坦克
+        tank = next((t for t in self.world.tanks if t.tank_id == self.tank_id and t.active and t.tank_type == "enemy"), None)
         if not tank:
             return
 

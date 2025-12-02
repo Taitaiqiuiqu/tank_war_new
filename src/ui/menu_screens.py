@@ -283,19 +283,6 @@ class SinglePlayerSetupScreen(BaseScreen):
                 # Draw walls
                 for wall in map_data['walls']:
                     wall_type = wall.get('type', 1)
-                    # Determine color based on wall type
-                    if wall_type == 1:  # Brick
-                        color = (165, 42, 42)
-                    elif wall_type == 2:  # Steel
-                        color = (192, 192, 192)
-                    elif wall_type == 3:  # Grass
-                        color = (0, 128, 0)
-                    elif wall_type == 4:  # River
-                        color = (0, 0, 128)
-                    elif wall_type == 5:  # Base
-                        color = (255, 0, 0)
-                    else:
-                        color = (128, 128, 128)
                     
                     # Calculate scaled position and size
                     x = int(wall['x'] * scale_x)
@@ -303,29 +290,68 @@ class SinglePlayerSetupScreen(BaseScreen):
                     w = int(50 * scale_x)
                     h = int(50 * scale_y)
                     
-                    # Draw wall
-                    pygame.draw.rect(self.preview_surface, color, (x, y, w, h))
+                    # Load and draw actual wall image
+                    wall_img = resource_manager.get_wall_image(wall_type)
+                    if wall_img:
+                        scaled_img = pygame.transform.scale(wall_img, (w, h))
+                        self.preview_surface.blit(scaled_img, (x, y))
+                    else:
+                        # Fallback to colored rectangle if image not available
+                        if wall_type == 1:  # Brick
+                            color = (165, 42, 42)
+                        elif wall_type == 2:  # Steel
+                            color = (192, 192, 192)
+                        elif wall_type == 3:  # Grass
+                            color = (0, 128, 0)
+                        elif wall_type == 4:  # River
+                            color = (0, 0, 128)
+                        elif wall_type == 5:  # Base
+                            color = (255, 0, 0)
+                        else:
+                            color = (128, 128, 128)
+                        pygame.draw.rect(self.preview_surface, color, (x, y, w, h))
                 
-                # Draw spawn points
-                # Player spawn (green)
+                # Draw spawn points with actual tank images
+                # Player spawn - use different tank skins (1-4) for different spawn points
                 player_spawns = map_data.get('player_spawns', [])
                 if player_spawns:
-                    for spawn in player_spawns:
+                    for idx, spawn in enumerate(player_spawns):
                         x = int(spawn[0] * scale_x)
                         y = int(spawn[1] * scale_y)
-                        pygame.draw.circle(self.preview_surface, (0, 255, 0), 
-                                          (x + int(25 * scale_x), y + int(25 * scale_y)), 
-                                          int(10 * scale_x))
+                        tank_id = (idx % 4) + 1  # Cycle through tank skins 1-4
+                        
+                        # Load player tank image
+                        images = resource_manager.load_tank_images('player', tank_id, 0)
+                        if images and images.get(0):
+                            tank_img = images[0][0]
+                            scaled_size = int(30 * scale_x)  # Tank is 30x30
+                            scaled_img = pygame.transform.scale(tank_img, (scaled_size, scaled_size))
+                            self.preview_surface.blit(scaled_img, (x, y))
+                        else:
+                            # Fallback to colored circle
+                            pygame.draw.circle(self.preview_surface, (0, 255, 0), 
+                                              (x + int(15 * scale_x), y + int(15 * scale_y)), 
+                                              int(10 * scale_x))
                 
-                # Enemy spawn (red)
+                # Enemy spawn - use enemy tank image
                 enemy_spawns = map_data.get('enemy_spawns', [])
                 if enemy_spawns:
                     for spawn in enemy_spawns:
                         x = int(spawn[0] * scale_x)
                         y = int(spawn[1] * scale_y)
-                        pygame.draw.circle(self.preview_surface, (255, 0, 0), 
-                                          (x + int(25 * scale_x), y + int(25 * scale_y)), 
-                                          int(10 * scale_x))
+                        
+                        # Load enemy tank image
+                        images = resource_manager.load_tank_images('enemy', 1, 0)
+                        if images and images.get(0):
+                            tank_img = images[0][0]
+                            scaled_size = int(30 * scale_x)  # Tank is 30x30
+                            scaled_img = pygame.transform.scale(tank_img, (scaled_size, scaled_size))
+                            self.preview_surface.blit(scaled_img, (x, y))
+                        else:
+                            # Fallback to colored circle
+                            pygame.draw.circle(self.preview_surface, (255, 0, 0), 
+                                              (x + int(15 * scale_x), y + int(15 * scale_y)), 
+                                              int(10 * scale_x))
         
         # Update preview image
         if hasattr(self, 'preview_image'):
