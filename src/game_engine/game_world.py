@@ -199,6 +199,20 @@ class GameWorld:
         self.stars.clear()
         self.game_over = False
         self.winner = None
+        
+        # 清理道具
+        self.prop_manager.props.empty()
+        
+        # 重置道具效果计时器
+        self.freeze_enemies_timer = 0
+        self.fortify_base_timer = 0
+        self.base_fortified = False
+        self.original_base_walls = []
+        
+        # 清理坦克生命和重生计时器
+        self.tank_lives.clear()
+        self.tank_info.clear()
+        self.respawn_timers.clear()
 
     def enable_debug_overlay(self, enabled: bool = True):
         """开启或关闭调试叠加层（显示对象数量等信息）。"""
@@ -536,35 +550,35 @@ class GameWorld:
         """应用道具效果"""
         print(f"Player got prop: {prop_type}")
         
-        if prop_type == 1: # 五角星 (武器升级)
-            # 吃一个：增加射击速度，变成两发炮弹 (Level 1)
-            # 吃两个：升级到最高火力，可消灭铁块 (Level 2)
-            # 吃三个：可消灭草地 (Level 3)
-            player.upgrade(1)
+        if prop_type == 1: # 坦克 (加命)
+            # 增加一条生命
+            if player.tank_id in self.tank_lives:
+                self.tank_lives[player.tank_id] += 1
+                
+        elif prop_type == 2: # 时钟 (时间静止)
+            # 规定时间内敌方坦克静止不动
+            self.freeze_enemies_timer = config.FREEZE_ENEMIES_DURATION # 10秒
             
-        elif prop_type == 2: # 手榴弹 (全屏杀)
+        elif prop_type == 3: # 铁锹 (基地防御)
+            # 基地周围红砖变钢墙，并修复
+            self._fortify_base()
+            self.fortify_base_timer = config.FORTIFY_BASE_DURATION # 20秒
+            
+        elif prop_type == 4: # 手榴弹 (全屏杀)
             # 玩家捡起：全场敌军坦克爆炸
             for tank in list(self.tanks):
                 if tank.tank_type == "enemy" and tank.active:
                     tank.take_damage(config.GRENADE_DAMAGE) # 秒杀
                     
-        elif prop_type == 3: # 时钟 (时间静止)
-            # 规定时间内敌方坦克静止不动
-            self.freeze_enemies_timer = config.FREEZE_ENEMIES_DURATION # 10秒
+        elif prop_type == 5: # 五角星 (武器升级)
+            # 吃一个：增加射击速度，变成两发炮弹 (Level 1)
+            # 吃两个：升级到最高火力，可消灭铁块 (Level 2)
+            # 吃三个：可消灭草地 (Level 3)
+            player.upgrade(1)
             
-        elif prop_type == 4: # 铁锹 (基地防御)
-            # 基地周围红砖变钢墙，并修复
-            self._fortify_base()
-            self.fortify_base_timer = config.FORTIFY_BASE_DURATION # 20秒
-            
-        elif prop_type == 5: # 头盔 (无敌)
+        elif prop_type == 6: # 头盔 (无敌)
             # 坦克周围张开能量防壁，免疫所有攻击
             player.activate_shield() # 默认10秒
-            
-        elif prop_type == 6: # 坦克 (加命)
-            # 增加一条生命
-            if player.tank_id in self.tank_lives:
-                self.tank_lives[player.tank_id] += 1
                 
         elif prop_type == 7: # 手枪 (超级武器)
             # 升级到二级 (破钢)
@@ -577,6 +591,7 @@ class GameWorld:
         elif prop_type == 8: # 船 (水上行走)
             # 可过河，抵挡一次攻击
             player.enable_boat()
+
 
     def _fortify_base(self):
         """强化基地周围墙体"""
@@ -603,8 +618,17 @@ class GameWorld:
                 tx = base_center_x + dx
                 ty = base_center_y + dy
                 
+                # 边界检查：确保坐标在地图范围内
+                # 地图宽度800px / 50px = 16格，高度600px / 50px = 12格
+                if tx < 0 or tx >= 16 or ty < 0 or ty >= 12:
+                    continue  # 跳过超出边界的格子
+                
                 # 查找该位置的墙
                 target_wall = next((w for w in self.walls if w.x == tx * 50 and w.y == ty * 50), None)
+                
+                # 额外检查：确保不覆盖基地
+                if target_wall and target_wall.wall_type == Wall.BASE:
+                    continue
                 
                 if target_wall:
                     # 记录原始状态
@@ -617,6 +641,7 @@ class GameWorld:
                     self.original_base_walls.append((tx * 50, ty * 50, None))
                 
                 # 生成钢墙
+                print(f"[Fortify] 在网格 ({tx}, {ty}) 生成钢墙，像素位置: ({tx * 50}, {ty * 50})")
                 self.spawn_wall(tx * 50, ty * 50, Wall.STEEL)
 
     def _restore_base(self):

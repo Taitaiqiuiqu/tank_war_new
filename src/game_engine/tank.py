@@ -261,6 +261,11 @@ class Tank(GameObject):
         """
         # 如果碰到墙壁或其他坦克，停止移动
         if isinstance(other, Tank) or hasattr(other, 'is_wall') and other.is_wall:
+            # 如果是墙体，检查是否是河流且有船
+            if hasattr(other, 'wall_type') and other.wall_type == 4 and self.has_boat:
+                # 允许通过河流
+                return
+
             # 回退一步，防止穿透
             self.x -= self.velocity_x
             self.y -= self.velocity_y
@@ -271,15 +276,7 @@ class Tank(GameObject):
         # 如果被子弹击中
         elif hasattr(other, 'owner') and other.owner != self:
             if not self.shield_active:
-                if self.has_boat and self.boat_shield_active:
-                    self.boat_shield_active = False # 船抵挡一次伤害
-                    # 船道具不消失，只是护盾没了？还是船也没了？
-                    # 需求：船...还可以防御敌人的一次攻击。
-                    # 通常逻辑是船没了。
-                    self.has_boat = False
-                    self.disable_boat()
-                else:
-                    self.take_damage(config.BULLET_DAMAGE)  # 假设子弹伤害为50
+                self.take_damage(config.BULLET_DAMAGE)  # 假设子弹伤害为50
 
     def upgrade(self, amount=1):
         """升级坦克"""

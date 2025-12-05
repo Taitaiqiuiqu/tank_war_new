@@ -9,6 +9,7 @@ from src.game_engine.wall import Wall
 from src.network.network_manager import NetworkManager
 from src.state_sync.state_manager import StateManager
 from src.ui.screen_manager import ScreenManager
+from src.ui.pause_menu import PauseMenuOverlay
 from src.utils.resource_manager import resource_manager
 from src.utils.map_loader import map_loader
 from src.game_engine.window_manager import WindowManager
@@ -249,6 +250,10 @@ class GameEngine:
         
         # 本地玩家ID (用于重生后重新获取控制权)
         self.local_player_id: Optional[int] = None
+        
+        # 暂停菜单
+        self.paused: bool = False
+        self.pause_menu: Optional[PauseMenuOverlay] = None
         
         # 播放游戏开始音效
         resource_manager.play_sound("start")
@@ -530,7 +535,30 @@ class GameEngine:
         if self.current_state != "game":
             return
 
+        # ESC键暂停/恢复
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            self._toggle_pause()
+            return
+        
+        # 如果暂停中，让暂停菜单处理事件
+        if self.paused and self.pause_menu:
+            action = self.pause_menu.handle_event(event)
+            if action == 'continue':
+                self._toggle_pause()
+            elif action == 'restart':
+                self._restart_game()
+            elif action == 'exit':
+                self._exit_to_menu()
+            return  # 暂停时不处理游戏事件
+
         if event.type == pygame.KEYDOWN:
+            # 调试功能：Ctrl+数字键生成道具
+            if pygame.key.get_mods() & pygame.KMOD_CTRL:
+                if event.key >= pygame.K_1 and event.key <= pygame.K_8:
+                    prop_id = event.key - pygame.K_1 + 1  # K_1=49, 转换为1-8
+                    self._spawn_cheat_prop(prop_id)
+                    return
+            
             if event.key in (pygame.K_w, pygame.K_UP):
                 self._push_direction(Tank.UP)
             elif event.key in (pygame.K_d, pygame.K_RIGHT):
@@ -543,8 +571,6 @@ class GameEngine:
                 self._player_shoot()
             elif event.key == pygame.K_F1:
                 self.game_world.enable_debug_overlay(not self.game_world.debug_overlay)
-            elif event.key == pygame.K_ESCAPE:
-                self.is_running = False
 
         elif event.type == pygame.KEYUP:
             if event.key in (pygame.K_w, pygame.K_UP):
@@ -558,6 +584,13 @@ class GameEngine:
 
     def update(self):
         """更新游戏状态"""
+        # 如果暂停，只更新UI管理器，跳过游戏逻辑
+        if self.paused:
+            # 更新UI管理器以处理暂停菜单
+            time_delta = 1.0 / 60.0
+            self.screen_manager.ui_manager.update(time_delta)
+            return
+        
         # Network Update
         if self.enable_network:
             self.network_manager.update()
@@ -716,6 +749,13 @@ class GameEngine:
 
         if self.current_state == "game":
             self.game_world.render(self.screen)
+            
+            # 渲染暂停菜单
+            if self.paused and self.pause_menu:
+                # 渲染半透明背景
+                self.pause_menu.render()
+                # 渲染UI元素（按钮和标签）
+                self.screen_manager.ui_manager.draw_ui(self.screen)
         else:
             self.screen_manager.render()
 
@@ -789,3 +829,92 @@ class GameEngine:
         # 更新所有控制器
         for controller in self.enemy_controllers:
             controller.update()
+    
+    def _toggle_pause(self):
+        """切换暂停状态"""
+        self.paused = not self.paused
+        if self.paused:
+            # 创建暂停菜单
+            self.pause_menu = PauseMenuOverlay(self.screen, self.screen_manager.ui_manager.manager)
+        else:
+            # 销毁暂停菜单
+            if self.pause_menu:
+                self.pause_menu.cleanup()
+                self.pause_menu = None
+
+    def _restart_game(self):
+        """重新开始游戏"""
+        if self.pause_menu:
+            self.pause_menu.cleanup()
+            self.pause_menu = None
+        self.paused = False
+        
+        # 重新初始化游戏世界
+        self.game_world.reset()
+        if hasattr(self.screen_manager.context, 'game_mode'):
+            if self.screen_manager.context.game_mode == 'single':
+                player_tank_id = getattr(self.screen_manager.context, 'player_tank_id', 1)
+                map_name = getattr(self.screen_manager.context, 'selected_map', 'default')
+                self._setup_single_player_world(player_tank_id, map_name)
+
+    def _exit_to_menu(self):
+        """退出到主菜单"""
+        if self.pause_menu:
+            self.pause_menu.cleanup()
+            self.pause_menu = None
+        self.paused = False
+        
+        # 停止所有音效
+        pygame.mixer.stop()
+        
+        # 清理游戏状态
+        self.game_world.reset()
+        self.enemy_controllers.clear()
+        self._movement_stack.clear()
+        
+        # 切换到菜单状态
+        self.current_state = "menu"
+        
+        # 通知ScreenManager切换到菜单屏幕
+        self.screen_manager.set_state("menu")
+    
+    def _spawn_cheat_prop(self, prop_id: int):
+        """调试功能：在玩家坦克前方生成指定道具
+        
+        Args:
+            prop_id: 道具ID (1-8)
+        """
+        if not self.player_tank or not self.player_tank.active:
+            print(f"[Cheat] 无法生成道具：玩家坦克不存在或未激活")
+            return
+        
+        # 获取玩家坦克位置和方向
+        tank_x = self.player_tank.x
+        tank_y = self.player_tank.y
+        direction = self.player_tank.direction
+        
+        # 根据坦克方向计算道具生成位置（坦克前方50像素）
+        offset = 50
+        if direction == Tank.UP:
+            prop_x = tank_x
+            prop_y = tank_y - offset
+        elif direction == Tank.RIGHT:
+            prop_x = tank_x + offset
+            prop_y = tank_y
+        elif direction == Tank.DOWN:
+            prop_x = tank_x
+            prop_y = tank_y + offset
+        elif direction == Tank.LEFT:
+            prop_x = tank_x - offset
+            prop_y = tank_y
+        else:
+            prop_x = tank_x
+            prop_y = tank_y
+        
+        # 确保道具在地图范围内
+        prop_x = max(0, min(prop_x, self.screen_width - 30))
+        prop_y = max(0, min(prop_y, self.screen_height - 30))
+        
+        # 生成道具
+        self.game_world.prop_manager.spawn_prop(prop_x, prop_y, prop_id)
+        print(f"[Cheat] 生成道具 {prop_id} 于位置 ({prop_x}, {prop_y})")
