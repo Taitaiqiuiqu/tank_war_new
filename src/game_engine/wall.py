@@ -1,5 +1,6 @@
 import pygame
 from src.game_engine.game_object import GameObject
+from src.config.game_config import config
 from src.utils.resource_manager import resource_manager
 
 class Wall(GameObject):
@@ -21,19 +22,30 @@ class Wall(GameObject):
             y: 位置y坐标
             wall_type: 墙体类型
         """
-        super().__init__(x, y, 50, 50)
+        super().__init__(x, y, config.WALL_WIDTH, config.WALL_HEIGHT)
         self.wall_type = wall_type
         self.is_wall = True
         
-        # 墙体特性（根据游戏素材文档修正）
-        self.destructible = wall_type == self.BRICK or wall_type == self.BASE
-        self.passable = wall_type == self.GRASS  # 草地可以通过
-        self.shoot_through = wall_type == self.GRASS or wall_type == self.RIVER  # 子弹可以穿过草地和河流
-        self.hides_tank = wall_type == self.GRASS  # 只有草地可以隐藏坦克
+        # 根据类型设置属性
+        self.destructible = False
+        self.passable = False
+        self.shoot_through = False
+        self.hides_tank = False
+        self.health = 0 # 默认生命值
+        
+        if wall_type == self.BRICK or wall_type == self.BASE:
+            self.destructible = True
+            self.health = config.WALL_HEALTH  # 砖墙和基地的生命值
+        elif wall_type == self.GRASS:
+            self.passable = True
+            self.shoot_through = True
+            self.hides_tank = True
+        elif wall_type == self.RIVER:
+            self.shoot_through = True
         
         # 为可摧毁墙体设置生命值（修复health属性未定义的bug）
-        if self.destructible:
-            self.health = 100  # 砖墙和基地的生命值
+        # if self.destructible: # This block is now redundant as health is set above
+        #     self.health = 100  # 砖墙和基地的生命值
         
         # 加载墙体图像
         self.image = self._load_wall_image()
@@ -51,7 +63,7 @@ class Wall(GameObject):
             return wall_img
         
         # 备用：创建占位符表面
-        surface = pygame.Surface((50, 50), pygame.SRCALPHA)
+        surface = pygame.Surface((config.WALL_WIDTH, config.WALL_HEIGHT), pygame.SRCALPHA)
         
         # 根据墙体类型设置颜色
         if self.wall_type == self.BRICK:
@@ -71,7 +83,7 @@ class Wall(GameObject):
         else:
             color = (128, 128, 128)  # 默认灰色
         
-        pygame.draw.rect(surface, color, (0, 0, 50, 50))
+        pygame.draw.rect(surface, color, (0, 0, config.WALL_WIDTH, config.WALL_HEIGHT))
         
         # 为基地添加特殊标记
         if self.wall_type == self.BASE:
@@ -111,14 +123,22 @@ class Wall(GameObject):
         """
         # 如果是坦克且墙体不可通过，则阻止坦克移动
         if hasattr(other, 'tank_type') and not self.passable:
-            # 回退坦克位置
-            other.x -= other.velocity_x
-            other.y -= other.velocity_y
-            other.rect.x = other.x
-            other.rect.y = other.y
-            other.stop()
+            # 检查是否有船且是河流
+            if self.wall_type == self.RIVER and getattr(other, 'has_boat', False):
+                pass # 可以通过
+            else:
+                # 回退坦克位置
+                other.x -= other.velocity_x
+                other.y -= other.velocity_y
+                other.rect.x = other.x
+                other.rect.y = other.y
+                other.stop()
         
         # 如果是子弹且墙体不可穿透，则子弹摧毁（除非墙体是草地或河流）
         elif hasattr(other, 'owner') and not self.shoot_through:
             if self.destructible:
                 self.take_damage(other.damage)
+            elif self.wall_type == self.STEEL and getattr(other, 'can_break_steel', False):
+                # 播放钢墙销毁音效 (如果有的话，暂时用砖块的或者不播放)
+                # resource_manager.play_sound("steel_destroy") 
+                self.destroy()

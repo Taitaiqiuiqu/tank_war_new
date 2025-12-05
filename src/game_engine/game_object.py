@@ -1,4 +1,5 @@
 import pygame
+from src.config.game_config import config
 
 class GameObject:
     """游戏对象基类，所有游戏实体的父类"""
@@ -21,7 +22,7 @@ class GameObject:
         self.active = True
         self.velocity_x = 0
         self.velocity_y = 0
-        self.health = 100
+        self.health = config.DEFAULT_HEALTH
     
     def update(self):
         """更新游戏对象状态"""

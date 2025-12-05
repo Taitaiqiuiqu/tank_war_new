@@ -3,35 +3,35 @@
         "font": {
             "name": "chinese",
             "size": "14",
-            "regular_path": "chinese"
+            "regular_path": "C:/Windows/Fonts/msyh.ttc"
         }
     },
     "button": {
         "font": {
             "name": "chinese",
             "size": "14",
-            "regular_path": "chinese"
+            "regular_path": "C:/Windows/Fonts/msyh.ttc"
         }
     },
     "text_entry_line": {
         "font": {
             "name": "chinese",
             "size": "14",
-            "regular_path": "chinese"
+            "regular_path": "C:/Windows/Fonts/msyh.ttc"
         }
     },
     "selection_list": {
         "font": {
             "name": "chinese",
             "size": "14",
-            "regular_path": "chinese"
+            "regular_path": "C:/Windows/Fonts/msyh.ttc"
         }
     },
     "window": {
         "font": {
             "name": "chinese",
             "size": "14",
-            "regular_path": "chinese"
+            "regular_path": "C:/Windows/Fonts/msyh.ttc"
         }
     }
 }

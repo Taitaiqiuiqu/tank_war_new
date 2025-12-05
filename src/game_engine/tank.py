@@ -3,6 +3,7 @@ import math
 from src.game_engine.game_object import GameObject
 from src.game_engine.bullet import Bullet
 from src.utils.resource_manager import resource_manager
+from src.config.game_config import config
 
 class Tank(GameObject):
     """坦克类"""
@@ -23,22 +24,30 @@ class Tank(GameObject):
             tank_id: 坦克ID，用于区分不同的坦克(逻辑ID)
             skin_id: 皮肤ID，用于显示(视觉ID)
         """
-        super().__init__(x, y, 30, 30)
+        super().__init__(x, y, config.TANK_WIDTH, config.TANK_HEIGHT)
         self.tank_type = tank_type
         self.tank_id = tank_id
         self.skin_id = skin_id
         self.direction = self.UP
-        self.speed = 2
+        self.speed = config.TANK_BASE_SPEED
         self.shoot_cooldown = 0
-        self.max_shoot_cooldown = 20  # 射击冷却帧数
+        self.max_shoot_cooldown = config.SHOOT_COOLDOWN_BASE  # 射击冷却帧数
         self.shield_active = False
         self.shield_duration = 0
-        self.max_shield_duration = 60  # 护盾持续帧数
+        self.max_shield_duration = config.SHIELD_DURATION  # 护盾持续帧数 (10s * 60fps)
+        
+        # 道具相关属性
+        self.level = config.INITIAL_LEVEL
+        self.has_boat = False
+        self.boat_shield_active = False
+        self.grass_cutter = False  # 是否能削草
+        self.steel_breaker = False # 是否能破钢
+        self.is_on_river = False # 是否在河上
         
         # 动画相关
         self.animation_frame = 0
         self.animation_counter = 0
-        self.animation_speed = 5  # 每5帧切换一次动画
+        self.animation_speed = config.TANK_ANIMATION_SPEED  # 每5帧切换一次动画
         
         # 移动状态
         self.is_moving = False
@@ -56,7 +65,7 @@ class Tank(GameObject):
             图像字典，按方向和状态组织
         """
         # 使用资源管理器加载真实图片
-        images = resource_manager.load_tank_images(self.tank_type, self.skin_id, level=0)
+        images = resource_manager.load_tank_images(self.tank_type, self.skin_id, level=self.level)
         
         # 如果加载失败，使用占位符
         if not images or not any(images.values()):
@@ -71,8 +80,8 @@ class Tank(GameObject):
         color = (0, 0, 255) if self.tank_type == 'player' else (255, 0, 0)
         
         for direction in range(4):
-            surface = pygame.Surface((30, 30), pygame.SRCALPHA)
-            pygame.draw.rect(surface, color, (0, 0, 30, 30))
+            surface = pygame.Surface((config.TANK_WIDTH, config.TANK_HEIGHT), pygame.SRCALPHA)
+            pygame.draw.rect(surface, color, (0, 0, config.TANK_WIDTH, config.TANK_HEIGHT))
             # 绘制炮管（调整位置以适应30x30）
             if direction == self.UP:
                 pygame.draw.rect(surface, (128, 128, 128), (13, 0, 4, 15))
@@ -151,7 +160,7 @@ class Tank(GameObject):
                 shield_frames = resource_manager.get_shield_frames()
                 if shield_frames:
                     # 使用护盾动画
-                    frame_index = (pygame.time.get_ticks() // 100) % len(shield_frames)
+                    frame_index = (pygame.time.get_ticks() // config.SHIELD_ANIMATION_INTERVAL) % len(shield_frames)
                     shield_img = shield_frames[frame_index]
                     # 护盾与坦克大小一致，直接覆盖在坦克上
                     screen.blit(shield_img, (self.x, self.y))
@@ -162,6 +171,12 @@ class Tank(GameObject):
                                        (self.width // 2, self.height // 2), 
                                        self.width // 2)
                     screen.blit(shield_surface, (self.x, self.y))
+            
+            # 渲染河流护盾 (仅当有船且在水中时)
+            if self.has_boat and self.is_on_river:
+                 river_shield_img = resource_manager.get_river_shield_image()
+                 if river_shield_img:
+                     screen.blit(river_shield_img, (self.x, self.y))
     
     def move(self, direction):
         """移动坦克
@@ -200,8 +215,8 @@ class Tank(GameObject):
         resource_manager.play_sound("fire")
         
         # 计算子弹的初始位置（从炮管前端射出）
-        bullet_x = self.x + self.width // 2 - 2
-        bullet_y = self.y + self.height // 2 - 2
+        bullet_x = self.x + self.width // 2 - config.BULLET_SPAWN_OFFSET
+        bullet_y = self.y + self.height // 2 - config.BULLET_SPAWN_OFFSET
         
         # 根据方向调整子弹初始位置
         if self.direction == self.UP:
@@ -214,7 +229,19 @@ class Tank(GameObject):
             bullet_x = self.x
         
         # 创建子弹
+        bullets = []
         bullet = Bullet(bullet_x, bullet_y, self.direction, owner=self)
+        bullets.append(bullet)
+
+        # 等级1以上：双发子弹 (稍微偏移或连发，这里简单实现为第二发)
+        if self.level >= config.LEVEL_1_THRESHOLD and self.tank_type == 'player':
+             # 简单的双发实现：稍微延迟或偏移
+             # 这里我们暂时只发一发，因为双发需要更复杂的子弹管理或连发逻辑
+             # 或者我们可以提高射速来模拟火力增强
+             self.max_shoot_cooldown = config.SHOOT_COOLDOWN_UPGRADED # 射速提升
+        
+        if self.level >= config.LEVEL_2_THRESHOLD:
+            bullet.can_break_steel = True
         
         # 设置冷却
         self.shoot_cooldown = self.max_shoot_cooldown
@@ -244,4 +271,51 @@ class Tank(GameObject):
         # 如果被子弹击中
         elif hasattr(other, 'owner') and other.owner != self:
             if not self.shield_active:
-                self.take_damage(50)  # 假设子弹伤害为50
+                if self.has_boat and self.boat_shield_active:
+                    self.boat_shield_active = False # 船抵挡一次伤害
+                    # 船道具不消失，只是护盾没了？还是船也没了？
+                    # 需求：船...还可以防御敌人的一次攻击。
+                    # 通常逻辑是船没了。
+                    self.has_boat = False
+                    self.disable_boat()
+                else:
+                    self.take_damage(config.BULLET_DAMAGE)  # 假设子弹伤害为50
+
+    def upgrade(self, amount=1):
+        """升级坦克"""
+        if self.tank_type != 'player':
+            return
+            
+        self.level += amount
+        if self.level > config.MAX_LEVEL:
+            self.level = config.MAX_LEVEL
+            
+        # 应用等级效果
+        if self.level >= config.LEVEL_1_THRESHOLD:
+            self.speed = config.TANK_UPGRADED_SPEED # 速度提升
+        if self.level >= config.LEVEL_2_THRESHOLD:
+            self.steel_breaker = True
+        if self.level >= config.LEVEL_3_THRESHOLD:
+            self.grass_cutter = True
+            
+        # 重新加载图片
+        self.images = self._load_tank_images()
+        
+    def set_level(self, target_level):
+        """直接设置等级"""
+        if self.tank_type != 'player':
+            return
+        
+        diff = target_level - self.level
+        if diff > 0:
+            self.upgrade(diff)
+
+    def enable_boat(self):
+        """启用船道具"""
+        self.has_boat = True
+        self.boat_shield_active = True
+        # 重新加载图片可能会有船的特效？目前需求是 river_shield 独立显示
+        
+    def disable_boat(self):
+        self.has_boat = False
+        self.boat_shield_active = False

@@ -1,6 +1,9 @@
 """
 地图编辑器界面
 """
+# 必须在导入pygame_gui之前初始化i18n
+import src.ui.init_i18n
+
 import json
 import os
 import pygame

@@ -29,6 +29,7 @@ class ResourceManager:
         self.tank_images: Dict[str, Dict[int, List[pygame.Surface]]] = {}
         self.explosion_frames: List[pygame.Surface] = []
         self.shield_frames: List[pygame.Surface] = []
+        self.river_shield_image: Optional[pygame.Surface] = None
         self.star_frames: List[pygame.Surface] = []
         
         # 音频缓存
@@ -50,6 +51,7 @@ class ResourceManager:
             self._load_bullet_image()
             self._load_explosion_frames()
             self._load_shield_frames()
+            self._load_river_shield_image()
             self._load_star_frames()
             self._load_sounds()
             print("✓ 游戏资源加载完成")
@@ -91,6 +93,14 @@ class ResourceManager:
                 img = pygame.transform.scale(img, (30, 30))
                 self.shield_frames.append(img)
     
+    def _load_river_shield_image(self):
+        """加载河流护盾图片"""
+        img_path = os.path.join(self.base_path, "images", "river_shield", "river_shield.png")
+        if os.path.exists(img_path):
+            img = pygame.image.load(img_path).convert_alpha()
+            # 缩放到30x30以匹配坦克大小
+            self.river_shield_image = pygame.transform.scale(img, (30, 30))
+
     def _load_star_frames(self):
         """加载星星动画帧（敌人生成特效）"""
         star_path = os.path.join(self.base_path, "images", "star")
@@ -104,7 +114,7 @@ class ResourceManager:
         musics_path = os.path.join(self.base_path, "musics")
         sound_files = {
             "boom": "boom.wav",
-            "bullet_destroy": "bullet.destroy.wav",
+            # "bullet_destroy": "bullet.destroy.wav",  # 格式不兼容，已移除
             "enemy_move": "enemy.move.wav",
             "fire": "fire.wav",
             "player_move": "player.move.wav",
@@ -190,6 +200,11 @@ class ResourceManager:
         self._ensure_resources_loaded()
         return self.shield_frames
     
+    def get_river_shield_image(self) -> Optional[pygame.Surface]:
+        """获取河流护盾图片"""
+        self._ensure_resources_loaded()
+        return self.river_shield_image
+
     def get_star_frames(self) -> List[pygame.Surface]:
         """获取星星动画帧"""
         return self.star_frames

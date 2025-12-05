@@ -1,6 +1,7 @@
 import pygame
 from src.game_engine.game_object import GameObject
 from src.utils.resource_manager import resource_manager
+from src.config.game_config import config
 
 class Bullet(GameObject):
     """子弹类"""
@@ -14,12 +15,13 @@ class Bullet(GameObject):
             direction: 子弹方向
             owner: 发射子弹的对象
         """
-        super().__init__(x, y, 4, 4)
+        super().__init__(x, y, config.BULLET_WIDTH, config.BULLET_HEIGHT)
         self.direction = direction
         self.owner = owner  # 谁发射的子弹
-        self.speed = 5
-        self.damage = 50
-        self.lifetime = 60  # 子弹生命周期（帧数）
+        self.speed = config.BULLET_SPEED
+        self.damage = config.BULLET_DAMAGE
+        self.lifetime = config.BULLET_LIFETIME  # 子弹生命周期（帧数）
+        self.can_break_steel = False # 是否能破坏钢墙
         
         # 根据方向设置速度
         self.velocity_x = 0
@@ -58,8 +60,8 @@ class Bullet(GameObject):
                 return pygame.transform.rotate(bullet_img, 90)
         
         # 备用：使用简单的黄色矩形
-        surface = pygame.Surface((4, 4), pygame.SRCALPHA)
-        pygame.draw.rect(surface, (255, 255, 0), (0, 0, 4, 4))
+        surface = pygame.Surface((config.BULLET_WIDTH, config.BULLET_HEIGHT), pygame.SRCALPHA)
+        pygame.draw.rect(surface, (255, 255, 0), (0, 0, config.BULLET_WIDTH, config.BULLET_HEIGHT))
         return surface
     
     def update(self):

@@ -12,16 +12,23 @@ from src.ui.screen_manager import ScreenManager
 from src.utils.resource_manager import resource_manager
 from src.utils.map_loader import map_loader
 from src.game_engine.window_manager import WindowManager
+from src.config.game_config import config
 
 
 class EnemyAIController:
-    """极简敌人 AI：随机改变方向并偶尔射击。"""
+    """增强型敌人AI：支持4个难度等级"""
 
-    def __init__(self, tank_id: int, world: GameWorld):
+    def __init__(self, tank_id: int, world: GameWorld, difficulty: str = "normal"):
+        from src.game_engine.ai_config import get_difficulty_config
+        
         self.tank_id = tank_id
         self.world = world
+        self.difficulty = difficulty
+        self.config = get_difficulty_config(difficulty)
+        
         self.direction_timer = 0
         self.shoot_timer = 0
+        self.role = None  # For Hell difficulty team coordination
 
     def update(self):
         # 动态查找坦克实例 - 只控制敌人坦克
@@ -29,14 +36,174 @@ class EnemyAIController:
         if not tank:
             return
 
+        # Apply speed from config
+        tank.speed = self.config["speed"]
+
+        # Update timers
         self.direction_timer -= 1
         self.shoot_timer -= 1
+        
+        # Movement logic based on difficulty
         if self.direction_timer <= 0:
-            tank.move(random.choice([Tank.UP, Tank.RIGHT, Tank.DOWN, Tank.LEFT]))
-            self.direction_timer = random.randint(30, 120)
+            self._update_movement(tank)
+            min_interval, max_interval = self.config["direction_interval"]
+            self.direction_timer = random.randint(min_interval, max_interval)
+        
+        # Shooting logic
         if self.shoot_timer <= 0:
+            self._update_shooting(tank)
+            min_interval, max_interval = self.config["shoot_interval"]
+            self.shoot_timer = random.randint(min_interval, max_interval)
+    
+    def _update_movement(self, tank):
+        """更新移动逻辑"""
+        if self.config["tracking"]:
+            self._move_with_tracking(tank)
+        else:
+            self._move_random(tank)
+    
+    def _move_random(self, tank):
+        """随机移动（简单难度）"""
+        tank.move(random.choice([Tank.UP, Tank.RIGHT, Tank.DOWN, Tank.LEFT]))
+    
+    def _move_with_tracking(self, tank):
+        """带追踪的移动（普通+难度）"""
+        # Find nearest player
+        player = self._find_nearest_player(tank)
+        if not player:
+            self._move_random(tank)
+            return
+        
+        # Calculate distance
+        dx = player.x - tank.x
+        dy = player.y - tank.y
+        distance = (dx**2 + dy**2)**0.5
+        
+        # Check if should track based on probability
+        tracking_prob = self.config.get("tracking_prob", 0.7)
+        if random.random() > tracking_prob:
+            self._move_random(tank)
+            return
+        
+        # Safe distance logic (Hard+)
+        safe_distance = self.config.get("safe_distance", 0)
+        if safe_distance > 0 and distance < safe_distance:
+            # Move away from player
+            if abs(dx) > abs(dy):
+                tank.move(Tank.LEFT if dx > 0 else Tank.RIGHT)
+            else:
+                tank.move(Tank.UP if dy > 0 else Tank.DOWN)
+            return
+        
+        # Dodge bullets (Normal+)
+        if self.config.get("dodge") and self._should_dodge(tank):
+            self._dodge_bullet(tank)
+            return
+        
+        # Move towards player
+        if abs(dx) > abs(dy):
+            tank.move(Tank.RIGHT if dx > 0 else Tank.LEFT)
+        else:
+            tank.move(Tank.DOWN if dy > 0 else Tank.UP)
+    
+    def _update_shooting(self, tank):
+        """更新射击逻辑"""
+        if self.config.get("prediction"):
+            self._shoot_with_prediction(tank)
+        else:
             self.world.spawn_bullet(tank)
-            self.shoot_timer = random.randint(90, 180)
+    
+    def _shoot_with_prediction(self, tank):
+        """带预判的射击"""
+        player = self._find_nearest_player(tank)
+        if not player:
+            self.world.spawn_bullet(tank)
+            return
+        
+        # Calculate predicted position
+        prediction_frames = self.config.get("prediction_frames", 10)
+        pred_x = player.x + player.velocity_x * prediction_frames
+        pred_y = player.y + player.velocity_y * prediction_frames
+        
+        # Determine best shooting direction
+        dx = pred_x - tank.x
+        dy = pred_y - tank.y
+        
+        # Choose direction closest to predicted position
+        if abs(dx) > abs(dy):
+            target_dir = Tank.RIGHT if dx > 0 else Tank.LEFT
+        else:
+            target_dir = Tank.DOWN if dy > 0 else Tank.UP
+        
+        # Aim and shoot
+        tank.direction = target_dir
+        self.world.spawn_bullet(tank)
+    
+    def _find_nearest_player(self, tank):
+        """查找最近的玩家"""
+        players = [t for t in self.world.tanks if t.active and t.tank_type == "player"]
+        if not players:
+            return None
+        
+        min_dist = float('inf')
+        nearest = None
+        for player in players:
+            dist = (player.x - tank.x)**2 + (player.y - tank.y)**2
+            if dist < min_dist:
+                min_dist = dist
+                nearest = player
+        return nearest
+    
+    def _should_dodge(self, tank):
+        """检查是否应该躲避子弹"""
+        dodge_prob = self.config.get("dodge_prob", 0.3)
+        if random.random() > dodge_prob:
+            return False
+        
+        # Check for incoming bullets
+        for bullet in self.world.bullets:
+            if not bullet.active or bullet.owner == tank:
+                continue
+            
+            # Simple collision prediction
+            if self._bullet_will_hit(bullet, tank):
+                return True
+        return False
+    
+    def _bullet_will_hit(self, bullet, tank):
+        """预测子弹是否会击中坦克"""
+        # Simple check: is bullet moving towards tank?
+        dx = tank.x - bullet.x
+        dy = tank.y - bullet.y
+        
+        # Check if bullet is close and moving towards tank
+        if bullet.direction == Tank.UP and dy < 0 and abs(dx) < 30 and abs(dy) < 200:
+            return True
+        if bullet.direction == Tank.DOWN and dy > 0 and abs(dx) < 30 and abs(dy) < 200:
+            return True
+        if bullet.direction == Tank.LEFT and dx < 0 and abs(dy) < 30 and abs(dx) < 200:
+            return True
+        if bullet.direction == Tank.RIGHT and dx > 0 and abs(dy) < 30 and abs(dx) < 200:
+            return True
+        return False
+    
+    def _dodge_bullet(self, tank):
+        """躲避子弹"""
+        # Find dangerous bullet
+        for bullet in self.world.bullets:
+            if not bullet.active or bullet.owner == tank:
+                continue
+            if self._bullet_will_hit(bullet, tank):
+                # Move perpendicular to bullet direction
+                if bullet.direction in [Tank.UP, Tank.DOWN]:
+                    tank.move(random.choice([Tank.LEFT, Tank.RIGHT]))
+                else:
+                    tank.move(random.choice([Tank.UP, Tank.DOWN]))
+                return
+        
+        # Fallback to random
+        self._move_random(tank)
+
 
 
 class GameEngine:
@@ -45,7 +212,7 @@ class GameEngine:
     def __init__(self, enable_network: bool = False):
         """初始化游戏引擎"""
         # 设置游戏窗口
-        self.screen = pygame.display.set_mode((800, 600))
+        self.screen = pygame.display.set_mode((config.DEFAULT_WINDOW_WIDTH, config.DEFAULT_WINDOW_HEIGHT))
         self.window_manager = WindowManager(self.screen)
         self.screen_width, self.screen_height = self.window_manager.get_size()
         pygame.display.set_caption("坦克大战 - 单机试玩")
@@ -73,6 +240,15 @@ class GameEngine:
         self.player_tank: Optional[Tank] = None
         self.enemy_controllers: List[EnemyAIController] = []
         self._movement_stack: List[int] = []
+        
+        # AI难度锁定（游戏开始时设置，之后不变）
+        self.game_difficulty: Optional[str] = None
+        
+        # 敌人ID计数器 (预留1-4给玩家，敌人从10开始)
+        self.next_enemy_id = 10
+        
+        # 本地玩家ID (用于重生后重新获取控制权)
+        self.local_player_id: Optional[int] = None
         
         # 播放游戏开始音效
         resource_manager.play_sound("start")
@@ -108,27 +284,40 @@ class GameEngine:
             width: 新的窗口宽度
             height: 新的窗口高度
         """
+        # 添加窗口大小限制
+        MIN_WIDTH = config.MIN_WINDOW_WIDTH
+        MIN_HEIGHT = config.MIN_WINDOW_HEIGHT
+        
+        if width < MIN_WIDTH or height < MIN_HEIGHT:
+            print(f"窗口大小不能小于 {MIN_WIDTH}x{MIN_HEIGHT}，忽略调整")
+            return
+        
         # 更新窗口相关属性
         self.screen_width = width
         self.screen_height = height
         self.screen = self.window_manager.game_surface
         
-        # 重新创建游戏世界以适应新的尺寸
-        self.game_world = GameWorld(width, height)
-        self.state_manager.attach_world(self.game_world)
+        # 只更新游戏世界的边界，不重新创建（保留游戏状态）
+        if self.game_world:
+            self.game_world.width = width
+            self.game_world.height = height
+            self.game_world.bounds = pygame.Rect(0, 0, width, height)
         
         # 通知ScreenManager窗口大小已改变
         if self.screen_manager:
             self.screen_manager.notify_window_resized(width, height)
-            self.screen_manager.game_engine = self  # 确保引用正确
             
-        print(f"游戏引擎已响应窗口大小改变: {width}x{height}")
+        print(f"游戏引擎已响应窗口大小改变: {width}x{height} (游戏状态已保留)")
         
     def _setup_single_player_world(self, player_tank_id=1, map_name="default"):
         """初始化单机模式对象。"""
         self._movement_stack.clear()
         self.enemy_controllers.clear()  # 清除旧的控制器
-        grid_size = 50
+        grid_size = config.GRID_SIZE
+        
+        # 锁定游戏难度（从context读取，游戏过程中不再改变）
+        self.game_difficulty = getattr(self.screen_manager.context, 'enemy_difficulty', 'normal')
+        print(f"[Game] 单人模式难度已锁定: {self.game_difficulty}")
         
         # Try to load custom map
         map_data = None
@@ -150,9 +339,14 @@ class GameEngine:
             self.game_world.register_spawn_points("player", [player_spawn])
             self.game_world.register_spawn_points("enemy", [enemy_spawn])
             
+            self.local_player_id = player_tank_id
             self.player_tank = self.game_world.spawn_tank("player", tank_id=player_tank_id, position=player_spawn, skin_id=player_tank_id)
-            self.game_world.spawn_tank("enemy", tank_id=1, position=enemy_spawn)
-            self.enemy_controllers.append(EnemyAIController(1, self.game_world))
+            
+            # 生成敌人 (使用动态ID)
+            enemy_id = self.next_enemy_id
+            self.next_enemy_id += 1
+            self.game_world.spawn_tank("enemy", tank_id=enemy_id, position=enemy_spawn)
+            self.enemy_controllers.append(EnemyAIController(enemy_id, self.game_world, difficulty=self.game_difficulty))
             
             # Load walls
             walls = map_data.get('walls', [])
@@ -170,9 +364,14 @@ class GameEngine:
             self.game_world.register_spawn_points("player", [player_spawn])
             self.game_world.register_spawn_points("enemy", [enemy_spawn])
 
+            self.local_player_id = player_tank_id
             self.player_tank = self.game_world.spawn_tank("player", tank_id=player_tank_id, position=player_spawn)
-            self.game_world.spawn_tank("enemy", tank_id=1, position=enemy_spawn)
-            self.enemy_controllers.append(EnemyAIController(1, self.game_world))
+            
+            # 生成敌人 (使用动态ID)
+            enemy_id = self.next_enemy_id
+            self.next_enemy_id += 1
+            self.game_world.spawn_tank("enemy", tank_id=enemy_id, position=enemy_spawn)
+            self.enemy_controllers.append(EnemyAIController(enemy_id, self.game_world, difficulty=self.game_difficulty))
 
             # 使用50x50网格创建地图布局
             # 中间一排砖墙（第6行，y=300）
@@ -216,7 +415,11 @@ class GameEngine:
         self.game_world.reset()
         self._movement_stack.clear()
         self.enemy_controllers.clear()  # 清除旧的控制器
-        grid_size = 50
+        grid_size = config.GRID_SIZE
+        
+        # 锁定游戏难度（从context读取，游戏过程中不再改变）
+        self.game_difficulty = getattr(self.screen_manager.context, 'enemy_difficulty', 'normal')
+        print(f"[Game] 联机模式难度已锁定: {self.game_difficulty}")
         
         # Load Map
         map_data = None
@@ -263,12 +466,16 @@ class GameEngine:
         
         if is_host:
             self.player_tank = p1
+            self.local_player_id = 1
         else:
             self.player_tank = p2
+            self.local_player_id = 2
         
         # Enemy Spawn
-        self.game_world.spawn_tank("enemy", tank_id=3, position=enemy_spawn)
-        self.enemy_controllers.append(EnemyAIController(3, self.game_world))
+        enemy_id = self.next_enemy_id
+        self.next_enemy_id += 1
+        self.game_world.spawn_tank("enemy", tank_id=enemy_id, position=enemy_spawn)
+        self.enemy_controllers.append(EnemyAIController(enemy_id, self.game_world, difficulty=self.game_difficulty))
         
         # Map Walls
         if map_data:
@@ -534,6 +741,15 @@ class GameEngine:
 
     def _apply_player_direction(self):
         # Client-Side Prediction: Both client and host move local player immediately
+        
+        # 重生检查：如果当前引用的坦克失效，尝试根据ID重新获取
+        if (not self.player_tank or not self.player_tank.active) and self.local_player_id:
+            # 尝试在活跃坦克列表中找到自己的坦克
+            new_tank = next((t for t in self.game_world.tanks if t.tank_id == self.local_player_id and t.active), None)
+            if new_tank:
+                print(f"[Control] 重新获取玩家坦克引用 (ID: {self.local_player_id})")
+                self.player_tank = new_tank
+
         if not self.player_tank or not self.player_tank.active:
             return
         if self._movement_stack:
@@ -554,5 +770,22 @@ class GameEngine:
     # 敌人 AI
     # ------------------------------------------------------------------ #
     def _update_enemy_ai(self):
+        """更新敌人AI"""
+        # 检查是否有新生成的敌人需要分配AI控制器
+        active_enemy_ids = {t.tank_id for t in self.game_world.tanks if t.active and t.tank_type == "enemy"}
+        current_controller_ids = {c.tank_id for c in self.enemy_controllers}
+        
+        # 为新敌人创建控制器
+        new_enemy_ids = active_enemy_ids - current_controller_ids
+        for tank_id in new_enemy_ids:
+            # 使用锁定的游戏难度，而不是从context读取（防止重生时难度改变）
+            difficulty = self.game_difficulty if self.game_difficulty else 'normal'
+            self.enemy_controllers.append(EnemyAIController(tank_id, self.game_world, difficulty))
+            print(f"[AI] 为坦克 {tank_id} 创建AI控制器，难度: {difficulty}")
+            
+        # 移除已死亡敌人的控制器
+        self.enemy_controllers = [c for c in self.enemy_controllers if c.tank_id in active_enemy_ids]
+        
+        # 更新所有控制器
         for controller in self.enemy_controllers:
             controller.update()

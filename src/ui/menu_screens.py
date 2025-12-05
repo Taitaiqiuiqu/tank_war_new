@@ -1,6 +1,9 @@
+# 必须在导入pygame_gui之前初始化i18n
+import src.ui.init_i18n
+
 import pygame
 import pygame_gui
-from pygame_gui.elements import UIButton, UILabel, UISelectionList, UIImage, UITextEntryLine
+from pygame_gui.elements import UIButton, UILabel, UISelectionList, UIImage, UITextEntryLine, UIDropDownMenu
 from pygame_gui.windows import UIMessageWindow
 
 from src.ui.screen_manager import BaseScreen, ScreenContext
@@ -164,6 +167,27 @@ class SinglePlayerSetupScreen(BaseScreen):
         
         self.context.selected_map = self.map_names[0]
         
+        # Difficulty Selection
+        UILabel(
+            relative_rect=pygame.Rect((center_x + 50, 130), (100, 30)),
+            text="敌人难度",
+            manager=self.manager
+        )
+        
+        from src.game_engine.ai_config import get_difficulty_names, get_difficulty_key_by_name, DEFAULT_DIFFICULTY, DIFFICULTY_CONFIGS
+        self.difficulty_names = get_difficulty_names()
+        default_diff_name = DIFFICULTY_CONFIGS[DEFAULT_DIFFICULTY]["name"]
+        
+        self.difficulty_dropdown = UIDropDownMenu(
+            options_list=self.difficulty_names,
+            starting_option=default_diff_name,
+            relative_rect=pygame.Rect((center_x + 50, 160), (100, 30)),
+            manager=self.manager
+        )
+        print(f"[DEBUG] Dropdown init: options={self.difficulty_names}, start={default_diff_name}")
+        # Set default in context
+        self.context.enemy_difficulty = DEFAULT_DIFFICULTY
+        
         self.btn_start = UIButton(
             relative_rect=pygame.Rect((center_x - 100, 400), (200, 50)),
             text='开始游戏',
@@ -198,7 +222,10 @@ class SinglePlayerSetupScreen(BaseScreen):
         )
 
     def handle_event(self, event: pygame.event.Event):
-        super().handle_event(event)
+        # Note: Do NOT call super().handle_event(event) here!
+        # ScreenManager already calls ui_manager.handle_event() before calling this method.
+        # Calling super() would process the event twice, causing event.text to become None.
+        
         if event.type == pygame_gui.UI_BUTTON_PRESSED:
             if event.ui_element == self.btn_start:
                 self.context.next_state = "game"
@@ -226,6 +253,23 @@ class SinglePlayerSetupScreen(BaseScreen):
                     print(f"地图选择: {selected_text} -> {selected_map}")
                     # Update preview
                     self._update_map_preview(selected_map)
+        elif event.type == pygame_gui.UI_DROP_DOWN_MENU_CHANGED:
+            if event.ui_element == self.difficulty_dropdown:
+                from src.game_engine.ai_config import get_difficulty_key_by_name
+                
+                # Fallback to selected_option if event.text is None
+                text = event.text if hasattr(event, 'text') and event.text is not None else self.difficulty_dropdown.selected_option
+                
+                print(f"[DEBUG] Dropdown Event Dict: {event.__dict__}")
+                print(f"[DEBUG] Dropdown State: selected={self.difficulty_dropdown.selected_option}, options={self.difficulty_dropdown.options_list}")
+                
+                if text is None or text == "None":
+                    text = "普通"
+                
+                selected_difficulty = get_difficulty_key_by_name(text)
+                self.context.enemy_difficulty = selected_difficulty
+                print(f"难度选择: {text} -> {selected_difficulty}")
+
 
     def _load_available_maps(self):
         """加载可用地图列表"""
@@ -382,6 +426,8 @@ class SinglePlayerSetupScreen(BaseScreen):
             self.btn_start.kill()
         if hasattr(self, 'btn_back'):
             self.btn_back.kill()
+        if hasattr(self, 'difficulty_dropdown'):
+            self.difficulty_dropdown.kill()
         # 调用父类方法
         super().on_exit()
     
@@ -615,6 +661,30 @@ class RoomScreen(BaseScreen):
         # Disable map selection for client
         if not getattr(self.context, 'is_host', False):
             self.map_selection_list.disable()
+            
+        # Difficulty Selection (Host Only)
+        UILabel(
+            relative_rect=pygame.Rect((50, 360), (100, 30)),
+            text="敌人难度:",
+            manager=self.manager
+        )
+        
+        from src.game_engine.ai_config import get_difficulty_names, get_difficulty_key_by_name, DEFAULT_DIFFICULTY, DIFFICULTY_CONFIGS
+        self.difficulty_names = get_difficulty_names()
+        default_diff_name = DIFFICULTY_CONFIGS[DEFAULT_DIFFICULTY]["name"]
+        
+        self.difficulty_dropdown = UIDropDownMenu(
+            options_list=self.difficulty_names,
+            starting_option=default_diff_name,
+            relative_rect=pygame.Rect((160, 360), (150, 30)),
+            manager=self.manager
+        )
+        
+        # Initialize difficulty
+        self.context.enemy_difficulty = DEFAULT_DIFFICULTY
+        
+        if not getattr(self.context, 'is_host', False):
+            self.difficulty_dropdown.disable()
         
         # Tank Selection UI
         self.local_tank_id = 1
@@ -798,6 +868,46 @@ class RoomScreen(BaseScreen):
                                         # Find and select in list
                                         break
                     
+                    elif event.get("type") == "difficulty_update":
+                        payload = event.get("payload")
+                        if payload and "difficulty" in payload:
+                            diff_key = payload["difficulty"]
+                            self.context.enemy_difficulty = diff_key
+                            # Update UI
+                            from src.game_engine.ai_config import DIFFICULTY_CONFIGS
+                            if diff_key in DIFFICULTY_CONFIGS:
+                                diff_name = DIFFICULTY_CONFIGS[diff_key]["name"]
+                                # Update dropdown selection without triggering event
+                                # pygame_gui doesn't have a clean set_selected_option that doesn't trigger?
+                                # Actually it's fine if it triggers as we check is_host
+                                # But for client, the dropdown is disabled anyway.
+                                # We just need to update the displayed text.
+                                # There isn't a direct set_selected method in older versions, let's check.
+                                # Assuming standard usage:
+                                self.difficulty_dropdown.selected_option = diff_name
+                                self.difficulty_dropdown.menu_states['closed'].finish()
+                                self.difficulty_dropdown.menu_states['closed'].start()
+                                # Or just kill and recreate? No that's ugly.
+                                # Let's try setting selected_option directly if possible or use internal method.
+                                # A safer way is just to let it be if it's disabled, but we want to see what host picked.
+                                # Let's try:
+                                # self.difficulty_dropdown.selected_option = diff_name
+                                # self.difficulty_dropdown.rebuild() 
+                                # But rebuild might not be available.
+                                # Simple hack: just print for now, UI update might need recreation.
+                                print(f"[Client] 收到难度更新: {diff_name}")
+                                # Recreate dropdown to update text (safest)
+                                rect = self.difficulty_dropdown.relative_rect
+                                manager = self.difficulty_dropdown.ui_manager
+                                self.difficulty_dropdown.kill()
+                                self.difficulty_dropdown = UIDropDownMenu(
+                                    options_list=self.difficulty_names,
+                                    starting_option=diff_name,
+                                    relative_rect=rect,
+                                    manager=manager
+                                )
+                                self.difficulty_dropdown.disable()
+                    
                     elif event.get("type") == "ready_state":
                         payload = event.get("payload")
                         if payload is not None:
@@ -866,7 +976,25 @@ class RoomScreen(BaseScreen):
                         
                         # Send map selection to client
                         if hasattr(self, 'network_manager'):
-                            self.network_manager.send_map_selection(self.selected_map)
+                            self.network_manager.send_event("map_selection", {"map_name": self.selected_map})
+                            
+        elif event.type == pygame_gui.UI_DROP_DOWN_MENU_CHANGED:
+            if hasattr(self, 'difficulty_dropdown') and event.ui_element == self.difficulty_dropdown:
+                if self.context.is_host:
+                    from src.game_engine.ai_config import get_difficulty_key_by_name
+                    # Fallback to selected_option if event.text is None
+                    text = event.text if event.text is not None else self.difficulty_dropdown.selected_option
+                    
+                    if text is None or text == "None":
+                        text = "普通"
+                        
+                    selected_difficulty = get_difficulty_key_by_name(text)
+                    self.context.enemy_difficulty = selected_difficulty
+                    print(f"[Host] 难度选择: {text} -> {selected_difficulty}")
+                    
+                    # Broadcast to client
+                    if hasattr(self, 'network_manager'):
+                        self.network_manager.send_event("difficulty_update", {"difficulty": selected_difficulty})
 
     def render(self):
         self.surface.fill((50, 30, 30))

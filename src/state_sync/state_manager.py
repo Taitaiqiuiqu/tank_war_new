@@ -59,7 +59,10 @@ class StateManager:
                     "vy": tank.velocity_y,  # For animation
                     "hp": getattr(tank, "health", 100),
                     "shield": tank.shield_active,
-                    "skin": getattr(tank, "skin_id", 1)
+                    "skin": getattr(tank, "skin_id", 1),
+                    "level": getattr(tank, "level", 0),
+                    "has_boat": getattr(tank, "has_boat", False),
+                    "is_on_river": getattr(tank, "is_on_river", False)
                 }
                 tanks.append(tank_data)
                 
@@ -77,14 +80,17 @@ class StateManager:
                     "owner": getattr(bullet.owner, "tank_id", -1)
                 })
                 
-        # Optimization: Only send destroyed walls
+        # Optimization: Only send destroyed walls and changed wall types
         destroyed_walls = []
+        changed_walls = []
         for idx, wall in enumerate(self.world.walls):
             if not wall.active:
                 destroyed_walls.append(idx)
-        
-        if destroyed_walls:
-            print(f"[Host] Encoding {len(destroyed_walls)} destroyed walls: {destroyed_walls[:5]}...")
+            # Track wall type changes (for Shovel effect)
+            # We need to store original types to detect changes
+            # For now, just send all wall types
+            if wall.active:
+                changed_walls.append({"idx": idx, "type": wall.wall_type})
                 
         # Sync Explosions
         explosions = []
@@ -114,6 +120,16 @@ class StateManager:
             "lives": dict(self.world.tank_lives),
             "timers": dict(self.world.respawn_timers)
         }
+        
+        # Sync Props
+        props = []
+        if hasattr(self.world, 'prop_manager'):
+            for prop in self.world.prop_manager.props:
+                props.append({
+                    "type": prop.type,
+                    "x": prop.rect.x,
+                    "y": prop.rect.y
+                })
 
         return {
             "ts": time.time(),
@@ -121,9 +137,11 @@ class StateManager:
             "my_tank": my_tank_data,  # Client's own tank for reconciliation
             "bullets": bullets,
             "d_walls": destroyed_walls,
+            "c_walls": changed_walls,
             "exps": explosions,
             "stars": stars,
             "respawn": respawn_data,
+            "props": props,
             "meta": {
                 "over": self.world.game_over,
                 "win": self.world.winner
@@ -151,6 +169,9 @@ class StateManager:
                     # Only sync critical state that client can't predict
                     tank.health = t_data.get("hp", 100)
                     tank.shield_active = t_data["shield"]
+                    tank.level = t_data.get("level", 0)
+                    tank.has_boat = t_data.get("has_boat", False)
+                    tank.is_on_river = t_data.get("is_on_river", False)
                     
                     # Special Case: Respawn / Teleport
                     # If tank was inactive (dead) and now active, OR position difference is huge -> Force Sync
@@ -199,6 +220,11 @@ class StateManager:
                         tank.animation_counter = 0
                         if tank.images[tank.direction]:
                             tank.current_image = tank.images[tank.direction][0]
+                    
+                    # Sync tank level and boat state
+                    tank.level = t_data.get("level", 0)
+                    tank.has_boat = t_data.get("has_boat", False)
+                    tank.is_on_river = t_data.get("is_on_river", False)
                 
                 # Always mark as active if in remote state
                 tank.active = True
@@ -240,6 +266,19 @@ class StateManager:
             else:
                 wall.active = True
                 wall.visible = True
+        
+        # Apply wall type changes (for Shovel effect)
+        c_walls = state.get("c_walls", [])
+        for wall_data in c_walls:
+            idx = wall_data["idx"]
+            new_type = wall_data["type"]
+            if idx < len(self.world.walls):
+                wall = self.world.walls[idx]
+                if wall.wall_type != new_type:
+                    wall.wall_type = new_type
+                    # Reload wall image
+                    from src.utils.resource_manager import resource_manager
+                    wall.image = resource_manager.get_wall_image(new_type)
 
         # 4. Sync Explosions
         self.world.explosions.clear()
@@ -284,3 +323,14 @@ class StateManager:
         meta = state.get("meta", {})
         self.world.game_over = meta.get("over", False)
         self.world.winner = meta.get("win")
+        
+        # 7. Sync Props
+        if hasattr(self.world, 'prop_manager'):
+            # Clear existing props (use empty() for sprite groups)
+            self.world.prop_manager.props.empty()
+            
+            # Recreate props from state
+            from src.items.prop import Prop
+            for prop_data in state.get("props", []):
+                prop = Prop(prop_data["x"], prop_data["y"], prop_data["type"])
+                self.world.prop_manager.props.add(prop)

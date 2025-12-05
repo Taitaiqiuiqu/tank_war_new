@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# 必须在导入pygame_gui之前初始化i18n
+import src.ui.init_i18n
+
 from dataclasses import dataclass
 from typing import Dict, Optional
 
@@ -27,6 +30,12 @@ class ScreenContext:
     # 坦克选择
     player_tank_id: int = 1
     enemy_tank_id: int = 1  # For multiplayer sync
+    
+    # 难度设置
+    enemy_difficulty: str = "normal"  # 敌人AI难度
+    
+    # 地图选择
+    selected_map: str = "default"  # 选中的地图名称
 
 
 class BaseScreen:
