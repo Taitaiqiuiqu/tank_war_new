@@ -115,17 +115,17 @@ class GameConfig:
     
     # ========== 窗口参数 ==========
     
-    # 默认窗口宽度（像素）
-    DEFAULT_WINDOW_WIDTH = 800
+    # 默认窗口宽度（像素） - 16:9比例
+    DEFAULT_WINDOW_WIDTH = 1920
     
-    # 默认窗口高度（像素）
-    DEFAULT_WINDOW_HEIGHT = 600
+    # 默认窗口高度（像素） - 16:9比例
+    DEFAULT_WINDOW_HEIGHT = 1080
     
-    # 最小窗口宽度（像素）
-    MIN_WINDOW_WIDTH = 800
+    # 最小窗口宽度（像素） - 16:9比例
+    MIN_WINDOW_WIDTH = 1280
     
-    # 最小窗口高度（像素）
-    MIN_WINDOW_HEIGHT = 600
+    # 最小窗口高度（像素） - 16:9比例
+    MIN_WINDOW_HEIGHT = 720
     
     # ========== 特效参数 ==========
     

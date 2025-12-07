@@ -25,17 +25,21 @@ class ScreenContext:
     # 联机相关
     is_host: bool = False
     username: str = "Player"
-    game_mode: str = "single"  # 'single' or 'multi'
+    game_mode: str = "single"  # 'single', 'multi', or 'level'
     
     # 坦克选择
     player_tank_id: int = 1
     enemy_tank_id: int = 1  # For multiplayer sync
+    player_skin: int = 1  # 玩家坦克皮肤
     
     # 难度设置
     enemy_difficulty: str = "normal"  # 敌人AI难度
     
     # 地图选择
     selected_map: str = "default"  # 选中的地图名称
+    
+    # 关卡模式相关
+    selected_level: Optional[int] = None  # 选中的关卡号
 
 
 class BaseScreen:
@@ -235,7 +239,15 @@ class ScreenManager:
     # ------------------------------------------------------------------ #
     def _init_default_screens(self):
         # 延迟导入以避免循环依赖
-        from src.ui.menu_screens import MainMenuScreen, SinglePlayerSetupScreen, LobbyScreen, RoomScreen
+        from src.ui.menu_screens import (
+            MainMenuScreen, 
+            SinglePlayerSetupScreen, 
+            LobbyScreen, 
+            RoomScreen,
+            LevelSelectScreen,
+            LevelTankSelectScreen,
+            SingleModeSelectScreen
+        )
         from src.ui.map_editor_screen import MapEditorScreen
         
         self.register_screen(
@@ -279,6 +291,19 @@ class ScreenManager:
         self.register_screen(
             "map_editor",
             MapEditorScreen(self.surface, self.context, self.ui_manager, self.network_manager)
+        )
+        self.register_screen(
+            "single_mode_select",
+            SingleModeSelectScreen(self.surface, self.context, self.ui_manager, self.network_manager)
+        )
+        # 关卡模式相关屏幕
+        self.register_screen(
+            "level_select",
+            LevelSelectScreen(self.surface, self.context, self.ui_manager, self.network_manager)
+        )
+        self.register_screen(
+            "level_tank_select",
+            LevelTankSelectScreen(self.surface, self.context, self.ui_manager, self.network_manager)
         )
 
     def _get_current_screen(self) -> Optional[BaseScreen]:

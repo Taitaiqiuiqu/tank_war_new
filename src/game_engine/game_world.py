@@ -414,6 +414,16 @@ class GameWorld:
             if wall.visible and wall.wall_type == Wall.GRASS:
                 wall.render(screen)
 
+        # 绘制地图边界线，区分地图和黑边
+        # 顶部边界：从(0, 0)到(self.width-1, 0)
+        pygame.draw.line(screen, (255, 255, 255), (0, 0), (self.width - 1, 0), 2)
+        # 底部边界：从(0, self.height-1)到(self.width-1, self.height-1)
+        pygame.draw.line(screen, (255, 255, 255), (0, self.height - 1), (self.width - 1, self.height - 1), 2)
+        # 左侧边界：从(0, 0)到(0, self.height-1)
+        pygame.draw.line(screen, (255, 255, 255), (0, 0), (0, self.height - 1), 2)
+        # 右侧边界：从(self.width-1, 0)到(self.width-1, self.height-1)
+        pygame.draw.line(screen, (255, 255, 255), (self.width - 1, 0), (self.width - 1, self.height - 1), 2)
+
         if self.debug_overlay:
             self._render_debug_overlay(screen)
 
@@ -619,8 +629,10 @@ class GameWorld:
                 ty = base_center_y + dy
                 
                 # 边界检查：确保坐标在地图范围内
-                # 地图宽度800px / 50px = 16格，高度600px / 50px = 12格
-                if tx < 0 or tx >= 16 or ty < 0 or ty >= 12:
+                # 动态计算行列数
+                cols = self.width // 50
+                rows = self.height // 50
+                if tx < 0 or tx >= cols or ty < 0 or ty >= rows:
                     continue  # 跳过超出边界的格子
                 
                 # 查找该位置的墙

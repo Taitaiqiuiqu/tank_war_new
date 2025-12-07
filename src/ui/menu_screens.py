@@ -10,6 +10,7 @@ from src.ui.screen_manager import BaseScreen, ScreenContext
 from src.ui.ui_components import UIManagerWrapper
 from src.utils.resource_manager import resource_manager
 from src.utils.map_loader import map_loader
+from src.utils.level_progress import load_level_progress
 
 
 class MainMenuScreen(BaseScreen):
@@ -32,7 +33,7 @@ class MainMenuScreen(BaseScreen):
         )
         
         self.btn_multi = UIButton(
-            relative_rect=pygame.Rect((center_x - btn_width // 2, center_y - 100 + btn_height + spacing), (btn_width, btn_height)),
+            relative_rect=pygame.Rect((center_x - btn_width // 2, center_y - 100 + (btn_height + spacing) * 1), (btn_width, btn_height)),
             text='联机模式',
             manager=self.manager
         )
@@ -60,14 +61,8 @@ class MainMenuScreen(BaseScreen):
         
         if event.type == pygame_gui.UI_BUTTON_PRESSED:
             if event.ui_element == self.btn_single:
-                # 进入单机设置
-                # TODO: 暂时直接开始游戏，后续跳转到 SinglePlayerSetupScreen
-                # self.screen_manager.set_state("single_setup") 
-                # 这里需要一种方式通知 ScreenManager 切换状态，或者通过 context 回调
-                # 目前 BaseScreen 没有直接引用 ScreenManager，可以通过 context 传递回调或者事件
-                # 简单起见，我们在 ScreenManager 中轮询 context 的状态请求，或者让 handle_event 返回新状态
-                # 但为了保持架构简单，我们可以约定 context 中有一个 next_state 字段
-                self.context.next_state = "single_setup"
+                # 进入单机模式选择界面
+                self.context.next_state = "single_mode_select"
                 
             elif event.ui_element == self.btn_multi:
                 self.context.next_state = "lobby"
@@ -86,6 +81,72 @@ class MainMenuScreen(BaseScreen):
         # 绘制标题
         title_surf = self.font.render("坦克大战", True, (255, 215, 0))
         self.surface.blit(title_surf, title_surf.get_rect(center=(self.surface.get_width() // 2, 100)))
+
+
+class SingleModeSelectScreen(BaseScreen):
+    """单机模式选择屏幕"""
+    
+    def on_enter(self):
+        super().on_enter()
+        
+        center_x = self.surface.get_width() // 2
+        center_y = self.surface.get_height() // 2
+        btn_width = 200
+        btn_height = 50
+        spacing = 20
+        
+        # 标题
+        UILabel(
+            relative_rect=pygame.Rect((center_x - 100, 100), (200, 30)),
+            text="选择游戏模式",
+            manager=self.manager,
+            object_id="@title"
+        )
+        
+        # 自由模式按钮
+        self.btn_free_mode = UIButton(
+            relative_rect=pygame.Rect((center_x - btn_width // 2, center_y - 50), (btn_width, btn_height)),
+            text='自由模式',
+            manager=self.manager
+        )
+        
+        # 关卡模式按钮
+        self.btn_level_mode = UIButton(
+            relative_rect=pygame.Rect((center_x - btn_width // 2, center_y + 20), (btn_width, btn_height)),
+            text='关卡模式',
+            manager=self.manager
+        )
+        
+        # 返回按钮
+        self.btn_back = UIButton(
+            relative_rect=pygame.Rect((center_x - btn_width // 2, center_y + 90), (btn_width, btn_height)),
+            text='返回主菜单',
+            manager=self.manager
+        )
+    
+    def handle_event(self, event: pygame.event.Event):
+        super().handle_event(event)
+        
+        if event.type == pygame_gui.UI_BUTTON_PRESSED:
+            if event.ui_element == self.btn_free_mode:
+                # 进入自由模式设置
+                self.context.next_state = "single_setup"
+            elif event.ui_element == self.btn_level_mode:
+                # 进入关卡选择界面
+                self.context.next_state = "level_select"
+            elif event.ui_element == self.btn_back:
+                # 返回主菜单
+                self.context.next_state = "menu"
+    
+    def render(self):
+        self.surface.fill((30, 30, 30))
+        # 绘制背景
+        pygame.draw.rect(
+            self.surface, 
+            (40, 40, 40), 
+            (self.surface.get_width() // 2 - 180, 30, 360, 300),
+            border_radius=10
+        )
 
 
 class SinglePlayerSetupScreen(BaseScreen):
@@ -231,7 +292,7 @@ class SinglePlayerSetupScreen(BaseScreen):
                 self.context.next_state = "game"
                 self.context.game_mode = "single"
             elif event.ui_element == self.btn_back:
-                self.context.next_state = "menu"
+                self.context.next_state = "single_mode_select"
             elif event.ui_element == self.btn_prev:
                 self.tank_id -= 1
                 if self.tank_id < 1: self.tank_id = 4
@@ -998,3 +1059,271 @@ class RoomScreen(BaseScreen):
 
     def render(self):
         self.surface.fill((50, 30, 30))
+
+
+# 已在文件开头导入：from src.utils.level_progress import load_level_progress
+
+# 在SinglePlayerSetupScreen类之后添加LevelSelectScreen类
+
+class LevelSelectScreen(BaseScreen):
+    """关卡选择屏幕"""
+    
+    def on_enter(self):
+        super().on_enter()
+        
+        center_x = self.surface.get_width() // 2
+        center_y = self.surface.get_height() // 2
+        
+        # 标题
+        UILabel(
+            relative_rect=pygame.Rect((center_x - 150, 30), (300, 40)),
+            text="选择关卡",
+            manager=self.manager,
+            object_id="@title"
+        )
+        
+        # 加载关卡进度
+        self.progress = load_level_progress()
+        self.unlocked_levels = self.progress["unlocked_levels"]
+        self.max_level = self.progress["max_level"]
+        
+        # 关卡按钮配置
+        self.level_buttons = []
+        self.level_locks = []
+        self.num_columns = 5  # 每行显示5个关卡
+        self.button_size = (80, 80)
+        self.spacing = 20
+        
+        # 计算起始位置，使关卡按钮居中显示
+        total_width = (self.button_size[0] + self.spacing) * self.num_columns - self.spacing
+        start_x = center_x - total_width // 2
+        start_y = 100
+        
+        # 创建关卡按钮
+        for level in range(1, self.max_level + 1):
+            # 计算按钮位置
+            row = (level - 1) // self.num_columns
+            col = (level - 1) % self.num_columns
+            x = start_x + col * (self.button_size[0] + self.spacing)
+            y = start_y + row * (self.button_size[1] + self.spacing)
+            
+            # 关卡按钮
+            btn = UIButton(
+                relative_rect=pygame.Rect((x, y), self.button_size),
+                text=f"第{level}关",
+                manager=self.manager
+            )
+            self.level_buttons.append(btn)
+            
+            # 检查关卡是否已解锁
+            if level not in self.unlocked_levels:
+                # 为未解锁的关卡创建锁定图标
+                lock_rect = pygame.Rect((x + 20, y + 20), (40, 40))
+                btn.disable()
+        
+        # 难度选择下拉框
+        UILabel(
+            relative_rect=pygame.Rect((center_x - 300, 350), (200, 30)),
+            text="敌人难度",
+            manager=self.manager
+        )
+        
+        from src.game_engine.ai_config import get_difficulty_names, DEFAULT_DIFFICULTY
+        difficulty_names = get_difficulty_names()
+        self.difficulty_dropdown = UIDropDownMenu(
+            options_list=difficulty_names,
+            starting_option=difficulty_names[1],  # 默认普通难度
+            relative_rect=pygame.Rect((center_x - 300, 380), (200, 30)),
+            manager=self.manager
+        )
+        
+        # 选择坦克按钮
+        self.btn_select_tank = UIButton(
+            relative_rect=pygame.Rect((center_x - 150, 430), (300, 50)),
+            text="选择坦克",
+            manager=self.manager
+        )
+        
+        # 返回按钮
+        self.btn_back = UIButton(
+            relative_rect=pygame.Rect((center_x - 150, 490), (300, 50)),
+            text="返回",
+            manager=self.manager
+        )
+        
+        # 当前选择的关卡
+        self.selected_level = None
+    
+    def handle_event(self, event: pygame.event.Event):
+        super().handle_event(event)
+        
+        if event.type == pygame_gui.UI_BUTTON_PRESSED:
+            # 检查是否点击了关卡按钮
+            for i, btn in enumerate(self.level_buttons):
+                if event.ui_element == btn:
+                    level = i + 1
+                    if level in self.unlocked_levels:
+                        self.selected_level = level
+                        print(f"已选择关卡: {level}")
+                        # 更新所有关卡按钮的样式，高亮当前选中的关卡
+                        for j, other_btn in enumerate(self.level_buttons):
+                            if j == i:
+                                # 选中的关卡按钮使用不同样式
+                                other_btn.set_text(f"> 第{level}关 <")
+                            else:
+                                other_btn.set_text(f"第{j+1}关")
+                    break
+            
+            # 选择坦克按钮
+            if event.ui_element == self.btn_select_tank:
+                if self.selected_level:
+                    # 保存选择的关卡和难度
+                    self.context.selected_level = self.selected_level
+                    from src.game_engine.ai_config import get_difficulty_key_by_name
+                    self.context.enemy_difficulty = get_difficulty_key_by_name(
+                        self.difficulty_dropdown.selected_option
+                    )
+                    # 跳转到坦克选择界面
+                    self.context.next_state = "level_tank_select"
+            
+            # 返回按钮
+            if event.ui_element == self.btn_back:
+                self.context.next_state = "single_mode_select"
+    
+    def render(self):
+        self.surface.fill((30, 30, 30))
+        
+        # 绘制关卡背景
+        pygame.draw.rect(
+            self.surface, 
+            (40, 40, 40), 
+            (self.surface.get_width() // 2 - 280, 80, 560, 250),
+            border_radius=10
+        )
+        
+        # 为未解锁的关卡绘制锁定图标
+        for i, btn in enumerate(self.level_buttons):
+            level = i + 1
+            if level not in self.unlocked_levels:
+                # 获取按钮位置
+                btn_rect = btn.get_relative_rect()
+                # 绘制锁定图标
+                lock_text = self.small_font.render("🔒", True, (255, 0, 0))
+                lock_x = btn_rect.x + btn_rect.width // 2 - lock_text.get_width() // 2
+                lock_y = btn_rect.y + btn_rect.height // 2 - lock_text.get_height() // 2
+                self.surface.blit(lock_text, (lock_x, lock_y))
+        
+        # 提示信息
+        if self.selected_level:
+            tips_text = f"已选择: 第{self.selected_level}关"
+        else:
+            tips_text = "请选择一个关卡"
+        
+        tips_surf = self.small_font.render(tips_text, True, (200, 200, 200))
+        self.surface.blit(
+            tips_surf, 
+            tips_surf.get_rect(center=(self.surface.get_width() // 2, 330))
+        )
+
+
+# 添加关卡坦克选择屏幕
+class LevelTankSelectScreen(BaseScreen):
+    """关卡模式的坦克选择屏幕"""
+    
+    def on_enter(self):
+        super().on_enter()
+        # Initialize font for statistics display
+        self.small_font = pygame.font.SysFont('SimHei', 16)
+        
+        center_x = self.surface.get_width() // 2
+        
+        self.tank_id = 1
+        self.context.player_tank_id = 1
+        
+        UILabel(
+            relative_rect=pygame.Rect((center_x - 100, 50), (200, 30)),
+            text="选择你的坦克",
+            manager=self.manager
+        )
+        
+        # Tank Image Display
+        self.image_rect = pygame.Rect((center_x - 50, 100), (100, 100))
+        self.tank_image_element = None
+        self._update_tank_image()
+        
+        # Selection Buttons
+        self.btn_prev = UIButton(
+            relative_rect=pygame.Rect((center_x - 160, 130), (100, 40)),
+            text='< 上一个',
+            manager=self.manager
+        )
+        
+        self.btn_next = UIButton(
+            relative_rect=pygame.Rect((center_x + 60, 130), (100, 40)),
+            text='下一个 >',
+            manager=self.manager
+        )
+        
+        # 开始游戏按钮
+        self.btn_start = UIButton(
+            relative_rect=pygame.Rect((center_x - 150, 280), (300, 50)),
+            text='开始游戏',
+            manager=self.manager
+        )
+        
+        # 返回按钮
+        self.btn_back = UIButton(
+            relative_rect=pygame.Rect((center_x - 150, 350), (300, 50)),
+            text='返回',
+            manager=self.manager
+        )
+    
+    def _update_tank_image(self):
+        """更新坦克图像显示"""
+        from src.utils.resource_manager import resource_manager
+        # Load tank image (Level 0, UP direction)
+        # resource_manager.load_tank_images returns dict[dir][frame]
+        images = resource_manager.load_tank_images('player', self.tank_id, 0)
+        if images and images.get(0):
+            surf = images[0][0]
+            # Scale up for UI
+            surf = pygame.transform.scale(surf, (100, 100))
+            if self.tank_image_element:
+                self.tank_image_element.kill()
+            self.tank_image_element = UIImage(
+                relative_rect=self.image_rect,
+                image_surface=surf,
+                manager=self.manager
+            )
+    
+    def handle_event(self, event: pygame.event.Event):
+        super().handle_event(event)
+        
+        if event.type == pygame_gui.UI_BUTTON_PRESSED:
+            if event.ui_element == self.btn_prev:
+                self.tank_id = (self.tank_id - 2) % 4 + 1  # 循环到上一个坦克
+                self.context.player_tank_id = self.tank_id
+                self._update_tank_image()
+            elif event.ui_element == self.btn_next:
+                self.tank_id = self.tank_id % 4 + 1  # 循环到下一个坦克
+                self.context.player_tank_id = self.tank_id
+                self._update_tank_image()
+            elif event.ui_element == self.btn_start:
+                # 保存玩家选择的坦克皮肤
+                self.context.player_skin = self.tank_id
+                # 设置游戏模式为关卡模式
+                self.context.game_mode = "level"
+                # 开始游戏
+                self.context.next_state = "game"
+            elif event.ui_element == self.btn_back:
+                self.context.next_state = "level_select"
+    
+    def render(self):
+        self.surface.fill((30, 30, 30))
+        # 绘制背景
+        pygame.draw.rect(
+            self.surface, 
+            (40, 40, 40), 
+            (self.surface.get_width() // 2 - 180, 30, 360, 400),
+            border_radius=10
+        )

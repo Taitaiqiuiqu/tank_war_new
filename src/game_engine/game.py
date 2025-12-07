@@ -224,15 +224,25 @@ class GameEngine:
         # 存储原始窗口尺寸
         self.original_width = self.screen_width
         self.original_height = self.screen_height
-
+        
         # 核心模块
         self.network_manager = NetworkManager()
         self.screen_manager = ScreenManager(self.screen, self.network_manager)
         # 将GameEngine实例传递给ScreenManager
         self.screen_manager.game_engine = self
         self.state_manager = StateManager()
-        self.game_world = GameWorld(self.screen_width, self.screen_height)
+        # 创建游戏世界，以1920*1080为基准，固定行列数（28列*21行）
+        # 1920*1080的4:3比例对应1440*1080，向下取整为50倍数后为1400*1050
+        grid_size = 50
+        game_world_width = 28 * grid_size  # 28列
+        game_world_height = 21 * grid_size  # 21行
+        self.game_world = GameWorld(game_world_width, game_world_height)
         self.state_manager.attach_world(self.game_world)
+        
+        # 宽高比适配相关
+        self.game_world_aspect_ratio = 4/3  # 游戏世界保持4:3比例
+        self.render_surface = None  # 中间渲染表面
+        self.update_render_surface()  # 初始化中间渲染表面
 
         # 游戏状态
         self.is_running = True
@@ -257,6 +267,11 @@ class GameEngine:
         
         # 播放游戏开始音效
         resource_manager.play_sound("start")
+        
+        # 关卡系统
+        self.current_level = 1
+        self.max_level = 10  # 默认10关
+        self.game_won = False
 
     def resize_window(self, width, height):
         """调整窗口大小
@@ -269,8 +284,11 @@ class GameEngine:
         self.screen_width = width
         self.screen_height = height
         self.screen = self.window_manager.game_surface
-        # 重新创建游戏世界以适应新的尺寸
-        self.game_world = GameWorld(width, height)
+        # 游戏世界保持固定尺寸（28列*21行）
+        grid_size = 50
+        game_world_width = 28 * grid_size  # 28列
+        game_world_height = 21 * grid_size  # 21行
+        self.game_world = GameWorld(game_world_width, game_world_height)
         self.state_manager.attach_world(self.game_world)
         # 重新初始化屏幕管理器以适应新的尺寸
         self.screen_manager = ScreenManager(self.screen, self.network_manager)
@@ -302,11 +320,8 @@ class GameEngine:
         self.screen_height = height
         self.screen = self.window_manager.game_surface
         
-        # 只更新游戏世界的边界，不重新创建（保留游戏状态）
-        if self.game_world:
-            self.game_world.width = width
-            self.game_world.height = height
-            self.game_world.bounds = pygame.Rect(0, 0, width, height)
+        # 更新中间渲染表面
+        self.update_render_surface()
         
         # 通知ScreenManager窗口大小已改变
         if self.screen_manager:
@@ -324,15 +339,22 @@ class GameEngine:
         self.game_difficulty = getattr(self.screen_manager.context, 'enemy_difficulty', 'normal')
         print(f"[Game] 单人模式难度已锁定: {self.game_difficulty}")
         
-        # Try to load custom map
+        # Try to load custom map or generate level map
         map_data = None
         if map_name != "default":
             map_data = map_loader.load_map(map_name)
             if map_data:
                 print(f"加载自定义地图: {map_data.get('name', map_name)}")
+        else:
+            # 使用关卡地图生成器
+            from src.utils.level_map_generator import generate_level_map
+            map_data = generate_level_map(self.current_level, 
+                                        self.game_world.width, 
+                                        self.game_world.height)
+            print(f"生成关卡地图: {map_data.get('name', '关卡地图')}")
         
         if map_data:
-            # Load from map file
+            # Load from map file or generated map
             # Spawn points - Single player mode only uses first player spawn
             player_spawns = map_data.get('player_spawns', [[400, 550]])
             enemy_spawns = map_data.get('enemy_spawns', [[400, 50]])
@@ -740,30 +762,193 @@ class GameEngine:
                     else:
                         self.state_manager.client_tank_id = None  # Client doesn't send my_tank
                         self.state_manager.local_player_id = p2_logic_id  # Skip this in decode
+                elif mode == "level":
+                    self.enable_network = False
+                    # 设置当前关卡为选择的关卡
+                    self.current_level = self.screen_manager.context.selected_level
+                    selected_map = "default"  # 关卡模式使用生成的地图
+                    player_skin = getattr(self.screen_manager.context, 'player_skin', 1)
+                    self._setup_single_player_world(player_skin, selected_map)
 
         self.state_manager.update()
 
+    def update_render_surface(self):
+        """更新中间渲染表面尺寸"""
+        # 游戏世界保持固定尺寸（28列*21行）
+        grid_size = 50
+        game_world_width = 28 * grid_size  # 28列
+        game_world_height = 21 * grid_size  # 21行
+        
+        # 创建或更新中间渲染表面
+        self.render_surface = pygame.Surface((game_world_width, game_world_height))
+        
+        # 更新游戏世界尺寸
+        if self.game_world:
+            self.game_world.width = game_world_width
+            self.game_world.height = game_world_height
+            self.game_world.bounds = pygame.Rect(0, 0, game_world_width, game_world_height)
+    
     def render(self):
-        """渲染游戏画面"""
+        """渲染游戏画面 - 实现宽高比适配"""
+        # 1. 填充背景为黑色
         self.screen.fill((0, 0, 0))
 
         if self.current_state == "game":
-            self.game_world.render(self.screen)
+            # 2. 确保中间渲染表面尺寸正确
+            self.update_render_surface()
             
-            # 渲染暂停菜单
+            # 3. 清空中间渲染表面
+            self.render_surface.fill((0, 0, 0))
+            
+            # 4. 将游戏世界渲染到中间表面
+            self.game_world.render(self.render_surface)
+            
+            # 5. 计算缩放比例和居中位置
+            # 以窗口高度为基准，计算游戏世界的缩放比例
+            scale_factor = self.screen_height / self.render_surface.get_height()
+            scaled_width = int(self.render_surface.get_width() * scale_factor)
+            scaled_height = int(self.render_surface.get_height() * scale_factor)
+            
+            # 计算居中位置（左右可能有黑边）
+            x_offset = (self.screen_width - scaled_width) // 2
+            y_offset = 0  # 上下没有黑边
+            
+            # 6. 缩放并绘制游戏世界到主窗口
+            scaled_surface = pygame.transform.scale(self.render_surface, (scaled_width, scaled_height))
+            self.screen.blit(scaled_surface, (x_offset, y_offset))
+            
+            # 8. 绘制生命值显示（在非游戏区域）
+            self._draw_lives_display(x_offset, y_offset, scaled_width, scaled_height)
+            
+            # 7. 渲染暂停菜单
             if self.paused and self.pause_menu:
                 # 渲染半透明背景
                 self.pause_menu.render()
                 # 渲染UI元素（按钮和标签）
                 self.screen_manager.ui_manager.draw_ui(self.screen)
         else:
+            # 菜单界面直接渲染到主窗口
             self.screen_manager.render()
 
         pygame.display.flip()
 
+    def _draw_lives_display(self, x_offset, y_offset, scaled_width, scaled_height):
+        """在非游戏区域绘制玩家和敌人的生命值显示
+        
+        Args:
+            x_offset: 游戏世界在屏幕上的x偏移量
+            y_offset: 游戏世界在屏幕上的y偏移量
+            scaled_width: 游戏世界的缩放后宽度
+            scaled_height: 游戏世界的缩放后高度
+        """
+        # 初始化字体
+        if not hasattr(self, 'lives_font'):
+            self.lives_font = pygame.font.SysFont('SimHei', 24)
+            self.lives_small_font = pygame.font.SysFont('SimHei', 18)
+        
+        # 计算生命值显示区域
+        left_margin = x_offset // 2  # 左侧黑边的中间位置
+        right_margin = x_offset + scaled_width + (x_offset // 2)  # 右侧黑边的中间位置
+        
+        # 玩家生命值信息
+        player_lives = 0
+        enemy_lives = 0
+        
+        # 统计玩家和敌人的剩余生命值
+        for tank_id, lives in self.game_world.tank_lives.items():
+            if tank_id in self.game_world.tank_info:
+                tank_type = self.game_world.tank_info[tank_id].get('type', '')
+                if tank_type == 'player':
+                    player_lives += lives
+                elif tank_type == 'enemy':
+                    enemy_lives += lives
+        
+        # 绘制玩家生命值显示（左侧）
+        player_text = f"玩家生命"
+        player_lives_text = f"{player_lives}"
+        
+        # 绘制玩家标题
+        player_title_surface = self.lives_font.render(player_text, True, (0, 255, 0))
+        player_title_rect = player_title_surface.get_rect(
+            center=(left_margin, scaled_height // 4)
+        )
+        self.screen.blit(player_title_surface, player_title_rect)
+        
+        # 绘制玩家生命值
+        player_lives_surface = self.lives_font.render(player_lives_text, True, (255, 255, 0))
+        player_lives_rect = player_lives_surface.get_rect(
+            center=(left_margin, scaled_height // 4 + 30)
+        )
+        self.screen.blit(player_lives_surface, player_lives_rect)
+        
+        # 绘制敌人生命值显示（右侧）
+        enemy_text = f"敌人生命"
+        enemy_lives_text = f"{enemy_lives}"
+        
+        # 绘制敌人标题
+        enemy_title_surface = self.lives_font.render(enemy_text, True, (255, 0, 0))
+        enemy_title_rect = enemy_title_surface.get_rect(
+            center=(right_margin, scaled_height // 4)
+        )
+        self.screen.blit(enemy_title_surface, enemy_title_rect)
+        
+        # 绘制敌人生命值
+        enemy_lives_surface = self.lives_font.render(enemy_lives_text, True, (255, 255, 0))
+        enemy_lives_rect = enemy_lives_surface.get_rect(
+            center=(right_margin, scaled_height // 4 + 30)
+        )
+        self.screen.blit(enemy_lives_surface, enemy_lives_rect)
+    
     def _check_game_over(self) -> bool:
         """检查游戏是否结束"""
-        return self.game_world.game_over
+        if self.game_world.game_over:
+            if self.game_world.winner == "player":
+                # 玩家获胜，解锁下一关卡
+                from src.utils.level_progress import unlock_next_level
+                unlock_next_level(self.current_level)
+                
+                # 玩家获胜，进入下一关卡
+                if self.current_level < self.max_level:
+                    # 准备进入下一关卡
+                    print(f"[Game] 第 {self.current_level} 关完成！准备进入第 {self.current_level + 1} 关...")
+                    self._prepare_next_level()
+                    return False  # 游戏未结束，继续进行下一关卡
+                else:
+                    # 通关所有关卡
+                    print(f"[Game] 恭喜！您已通关所有 {self.max_level} 关！")
+                    self.game_won = True
+                    return True
+            else:
+                # 玩家失败，游戏结束
+                print(f"[Game] 第 {self.current_level} 关失败！游戏结束。")
+                return True
+        return False
+    
+    def _prepare_next_level(self):
+        """准备进入下一关卡"""
+        # 增加关卡数
+        self.current_level += 1
+        
+        # 重置游戏世界
+        self.game_world.reset()
+        
+        # 清除旧的敌人控制器
+        self.enemy_controllers.clear()
+        
+        # 根据当前游戏模式重新设置游戏世界
+        if hasattr(self.screen_manager.context, 'is_multiplayer') and self.screen_manager.context.is_multiplayer:
+            # 联机模式
+            p1_skin = getattr(self.screen_manager.context, 'p1_skin', 1)
+            p2_skin = getattr(self.screen_manager.context, 'p2_skin', 2)
+            selected_map = getattr(self.screen_manager.context, 'selected_map', 'default')
+            self.setup_multiplayer_world(p1_skin, p2_skin, selected_map)
+        else:
+            # 单机模式
+            player_skin = getattr(self.screen_manager.context, 'player_skin', 1)
+            selected_map = getattr(self.screen_manager.context, 'selected_map', 'default')
+            self._setup_single_player_world(player_skin, selected_map)
+        
+        print(f"[Game] 第 {self.current_level} 关已准备就绪！")
 
     # ------------------------------------------------------------------ #
     # 玩家控制
@@ -848,6 +1033,10 @@ class GameEngine:
             self.pause_menu.cleanup()
             self.pause_menu = None
         self.paused = False
+        
+        # 重置关卡系统
+        self.current_level = 1
+        self.game_won = False
         
         # 重新初始化游戏世界
         self.game_world.reset()
