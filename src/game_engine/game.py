@@ -449,6 +449,13 @@ class GameEngine:
         self.enemy_controllers.clear()  # 清除旧的控制器
         grid_size = config.GRID_SIZE
         
+        # 重置游戏世界，清除旧的游戏对象
+        self.game_world.reset()
+        
+        # 播放游戏开始音效
+        from src.utils.resource_manager import resource_manager
+        resource_manager.play_sound("start")
+        
         # 锁定游戏难度（从context读取，游戏过程中不再改变）
         self.game_difficulty = getattr(self.screen_manager.context, 'enemy_difficulty', 'normal')
         print(f"[Game] 单人模式难度已锁定: {self.game_difficulty}")
@@ -557,6 +564,10 @@ class GameEngine:
         self._movement_stack.clear()
         self.enemy_controllers.clear()  # 清除旧的控制器
         grid_size = config.GRID_SIZE
+        
+        # 播放游戏开始音效
+        from src.utils.resource_manager import resource_manager
+        resource_manager.play_sound("start")
         
         # 锁定游戏难度（从context读取，游戏过程中不再改变）
         self.game_difficulty = getattr(self.screen_manager.context, 'enemy_difficulty', 'normal')
@@ -826,26 +837,41 @@ class GameEngine:
                             tank_ids = [t.tank_id for t in self.game_world.tanks if t.active]
                             print(f"[Host] Error: Client tank (ID 2) not found! Active tanks: {tank_ids}")
                             
-                # 2. Update Physics
-                if self.current_state == "game":
+                # 2. Update Physics - 只有在游戏未结束时才更新
+                if self.current_state == "game" and not self.game_world.game_over:
                     self._update_enemy_ai()
                     self.game_world.update()
                     
                     # 检查游戏是否结束
                     if self._check_game_over():
-                        # 游戏结束，返回主菜单
-                        self.current_state = "menu"
-                        self.game_world.reset()
-                    
-                # 3. Send State
-                state = self.state_manager.encode_state()
-                self.network_manager.send_state(state)
+                        # 游戏结束，停止所有音效
+                        pygame.mixer.stop()
+                        # 设置游戏结果并显示游戏结束屏幕
+                        self.screen_manager.context.game_won = self.game_world.winner == "player"
+                        # 通知屏幕管理器切换到游戏结束屏幕
+                        self.screen_manager.set_state("game_over")
+                        # 不要立即重置游戏世界，等回到主菜单时再重置
+                    else:
+                        # 3. Send State - 只有游戏未结束时才发送状态
+                        state = self.state_manager.encode_state()
+                        self.network_manager.send_state(state)
         
         else:
             # Single Player
-            if self.current_state == "game":
+            # 只有在游戏未结束时才更新游戏世界
+            if self.current_state == "game" and not self.game_world.game_over:
                 self._update_enemy_ai()
                 self.game_world.update()
+                
+                # 检查游戏是否结束
+                if self._check_game_over():
+                    # 游戏结束，停止所有音效
+                    pygame.mixer.stop()
+                    # 设置游戏结果并显示游戏结束屏幕
+                    self.screen_manager.context.game_won = self.game_world.winner == "player"
+                    # 通知屏幕管理器切换到游戏结束屏幕
+                    self.screen_manager.set_state("game_over")
+                    # 不要立即重置游戏世界，等回到主菜单时再重置
 
         # UI Update
         self.screen_manager.update()

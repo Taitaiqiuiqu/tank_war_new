@@ -451,8 +451,6 @@ class GameWorld:
                 if self.tank_lives[tank_id] > 0:
                     # 还有命，90帧后重生 (3秒)
                     self.respawn_timers[tank_id] = config.RESPAWN_TIME
-                # 否则不重生，游戏结束由_check_game_status判断
-                # 否则不重生，游戏结束由_check_game_status判断
             
             # 敌人死亡掉落道具 (25%概率)
             if obj.tank_type == "enemy" and random.random() < config.ENEMY_DROP_RATE:
@@ -692,36 +690,55 @@ class GameWorld:
             # 如果是None，说明原来是空地，不需要生成墙
     
     def _check_game_status(self):
-        """根据存活坦克和剩余生命值判断游戏胜负。"""
+        """根据存活坦克、剩余生命值和基地状态判断游戏胜负。"""
         if self.game_over:
+            return
+
+        # 检查基地是否被摧毁（关键条件！）
+        base_exists = any(wall.wall_type == Wall.BASE and wall.active for wall in self.walls)
+        if not base_exists:
+            # 基地被摧毁，游戏失败
+            self.game_over = True
+            self.winner = "enemy"
             return
 
         # 检查玩家方是否还有有效生命（活跃坦克或剩余生命值）
         player_has_lives = False
-        for tank in self.tanks:
-            if tank.tank_type == "player":
-                # 如果坦克活跃，或者有剩余生命值（正在重生），则玩家方仍有效
-                if tank.active or (tank.tank_id in self.tank_lives and self.tank_lives[tank.tank_id] > 0):
+        
+        # 首先检查所有活跃的玩家坦克
+        active_player_tanks = [t for t in self.tanks if t.tank_type == "player" and t.active]
+        if active_player_tanks:
+            player_has_lives = True
+        
+        # 如果没有活跃的玩家坦克，检查是否有剩余生命值
+        if not player_has_lives:
+            for tank_id, lives in self.tank_lives.items():
+                if tank_id in self.tank_info and self.tank_info[tank_id]["type"] == "player" and lives > 0:
                     player_has_lives = True
                     break
         
         # 检查敌人方是否还有有效生命
         enemy_has_lives = False
-        for tank in self.tanks:
-            if tank.tank_type == "enemy":
-                # 如果坦克活跃，或者有剩余生命值（正在重生），则敌人方仍有效
-                if tank.active or (tank.tank_id in self.tank_lives and self.tank_lives[tank.tank_id] > 0):
+        
+        # 首先检查所有活跃的敌人坦克
+        active_enemy_tanks = [t for t in self.tanks if t.tank_type == "enemy" and t.active]
+        if active_enemy_tanks:
+            enemy_has_lives = True
+        
+        # 如果没有活跃的敌人坦克，检查是否有剩余生命值
+        if not enemy_has_lives:
+            for tank_id, lives in self.tank_lives.items():
+                if tank_id in self.tank_info and self.tank_info[tank_id]["type"] == "enemy" and lives > 0:
                     enemy_has_lives = True
                     break
 
         # 判断游戏胜负
-        if not player_has_lives and not enemy_has_lives:
-            self.game_over = True
-            self.winner = "draw"
-        elif not player_has_lives:
+        if not player_has_lives:
+            # 玩家没有剩余生命，游戏失败
             self.game_over = True
             self.winner = "enemy"
         elif not enemy_has_lives:
+            # 所有敌人被消灭，游戏胜利
             self.game_over = True
             self.winner = "player"
 

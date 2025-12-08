@@ -100,11 +100,58 @@ class TextScreen(BaseScreen):
         self.title = title
         self.description = description
 
+    def handle_event(self, event: pygame.event.Event):
+        # 只有当当前屏幕状态是game_over或相关菜单状态时，才处理按键事件返回主菜单
+        if event.type == pygame.KEYDOWN and hasattr(self.context.screen_manager, 'current_state') and self.context.screen_manager.current_state == "game_over":
+            self.context.next_state = "menu"
+
     def render(self):
         width, height = self.surface.get_size()
         self.surface.fill((24, 24, 24))
         title_surface = self.font.render(self.title, True, (255, 255, 255))
         desc_surface = self.small_font.render(self.description, True, (180, 180, 180))
+        self.surface.blit(title_surface, title_surface.get_rect(center=(width // 2, height // 2 - 20)))
+        self.surface.blit(desc_surface, desc_surface.get_rect(center=(width // 2, height // 2 + 20)))
+        
+        # 绘制 UI 元素（如果有）
+        self.ui_manager.draw_ui(self.surface)
+
+
+class GameOverScreen(BaseScreen):
+    """游戏结束屏幕，根据游戏结果显示不同的消息."""
+
+    def __init__(self, surface: pygame.Surface, context: ScreenContext, ui_manager: UIManagerWrapper, network_manager=None):
+        super().__init__(surface, context, ui_manager, network_manager)
+        self.title = "游戏结束"
+        self.description = "按任意键返回主菜单"
+        self.game_won = False
+
+    def on_enter(self):
+        super().on_enter()
+        # 从上下文中获取游戏结果
+        self.game_won = getattr(self.context, 'game_won', False)
+        
+        if self.game_won:
+            self.title = "恭喜你获胜了！"
+            self.description = "你成功击败了所有敌人！按任意键返回主菜单"
+        else:
+            self.title = "游戏结束"
+            self.description = "你被敌人击败了！按任意键返回主菜单"
+
+    def handle_event(self, event: pygame.event.Event):
+        # 只有当当前屏幕状态是game_over时，才处理按键事件返回主菜单
+        if event.type == pygame.KEYDOWN and hasattr(self.context.screen_manager, 'current_state') and self.context.screen_manager.current_state == "game_over":
+            self.context.next_state = "menu"
+
+    def render(self):
+        width, height = self.surface.get_size()
+        self.surface.fill((24, 24, 24))
+        
+        # 根据游戏结果显示不同颜色的标题
+        title_color = (0, 255, 0) if self.game_won else (255, 0, 0)
+        title_surface = self.font.render(self.title, True, title_color)
+        desc_surface = self.small_font.render(self.description, True, (180, 180, 180))
+        
         self.surface.blit(title_surface, title_surface.get_rect(center=(width // 2, height // 2 - 20)))
         self.surface.blit(desc_surface, desc_surface.get_rect(center=(width // 2, height // 2 + 20)))
         
@@ -241,6 +288,12 @@ class ScreenManager:
             SettingsScreen
         )
         from src.ui.map_editor_screen import MapEditorScreen
+        
+        # 添加游戏结束屏幕
+        self.register_screen(
+            "game_over",
+            GameOverScreen(self.surface, self.context, self.ui_manager)
+        )
         
         self.register_screen(
             "menu",
