@@ -1,84 +1,432 @@
 """
-地图加载器 - 从JSON文件加载自定义地图
+地图加载器 - 支持16:9屏幕比例和动态分辨率
 """
-import json
 import os
-from typing import Optional, List, Dict, Any
+import json
+import pygame
+from src.game_engine.wall import Wall
+from src.config.game_config import config
 
 
 class MapLoader:
-    """地图加载器类"""
+    """地图加载器类 - 支持16:9屏幕比例和动态分辨率"""
     
-    def __init__(self, maps_dir: str = "maps"):
-        """初始化地图加载器
-        
-        Args:
-            maps_dir: 地图文件目录
-        """
+    def __init__(self, maps_dir="maps"):
+        """初始化地图加载器"""
         self.maps_dir = maps_dir
-        self.base_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        self.maps_path = os.path.join(self.base_path, maps_dir)
+        self.maps = []
+        
+        # 确保地图目录存在
+        if not os.path.exists(self.maps_dir):
+            os.makedirs(self.maps_dir)
+        
+        # 获取可用地图列表
+        self._load_maps_list()
     
-    def get_available_maps(self) -> List[str]:
-        """获取所有可用的地图名称
+    def _load_maps_list(self):
+        """加载可用地图列表"""
+        self.maps = []
+        try:
+            for filename in os.listdir(self.maps_dir):
+                if filename.endswith(".json"):
+                    filepath = os.path.join(self.maps_dir, filename)
+                    try:
+                        with open(filepath, 'r', encoding='utf-8') as f:
+                            map_data = json.load(f)
+                        
+                        # 获取地图基本信息
+                        map_info = {
+                            "name": map_data.get("name", filename.replace(".json", "")),
+                            "filename": filename,
+                            "filepath": filepath,
+                            "original_width": map_data.get("original_width", 800),
+                            "original_height": map_data.get("original_height", 600),
+                            "aspect_ratio": map_data.get("aspect_ratio", 4/3),
+                            "grid_size": map_data.get("grid_size", config.GRID_SIZE)
+                        }
+                        self.maps.append(map_info)
+                        print(f"加载地图信息: {map_info['name']} ({map_info['original_width']}x{map_info['original_height']})")
+                    except Exception as e:
+                        print(f"加载地图文件 {filename} 时出错: {e}")
+        except Exception as e:
+            print(f"获取地图列表时出错: {e}")
+    
+    def get_available_maps(self):
+        """获取所有可用地图的列表
         
         Returns:
-            地图名称列表（不含.json扩展名）
+            list: 包含地图信息的字典列表
         """
-        if not os.path.exists(self.maps_path):
-            return []
-        
-        maps = []
-        for filename in os.listdir(self.maps_path):
-            if filename.endswith('.json'):
-                maps.append(filename[:-5])  # 移除.json扩展名
-        return sorted(maps)
+        # 重新加载地图列表以确保最新
+        self._load_maps_list()
+        return self.maps
     
-    def load_map(self, map_name: str) -> Optional[Dict[str, Any]]:
-        """加载指定地图
+    def load_map(self, map_name, target_grid_size=None):
+        """加载指定名称的地图，并根据当前游戏尺寸进行适配
         
         Args:
-            map_name: 地图名称（不含扩展名）
+            map_name: 地图名称或文件名
+            target_grid_size: 目标网格大小（如果为None，则使用配置中的网格大小）
         
         Returns:
-            地图数据字典，如果加载失败返回None
+            dict: 包含地图数据的字典，支持16:9比例和自适应游戏窗口尺寸
         """
-        map_file = os.path.join(self.maps_path, f"{map_name}.json")
+        if target_grid_size is None:
+            target_grid_size = config.GRID_SIZE
         
-        if not os.path.exists(map_file):
-            print(f"地图文件不存在: {map_file}")
+        # 查找地图文件
+        map_filepath = None
+        for map_info in self.maps:
+            if map_info["name"] == map_name or map_info["filename"] == map_name:
+                map_filepath = map_info["filepath"]
+                break
+        
+        # 如果没有找到，尝试直接构建文件路径
+        if map_filepath is None:
+            if not map_name.endswith(".json"):
+                map_name += ".json"
+            map_filepath = os.path.join(self.maps_dir, map_name)
+        
+        if not os.path.exists(map_filepath):
+            print(f"地图文件不存在: {map_filepath}")
+            
+            # 如果是默认地图，返回硬编码的默认地图数据
+            if map_name == "default" or map_filepath.endswith("default.json"):
+                return self._get_default_map(target_grid_size)
+            
             return None
         
         try:
-            with open(map_file, 'r', encoding='utf-8') as f:
+            with open(map_filepath, 'r', encoding='utf-8') as f:
                 map_data = json.load(f)
-            
-            # 验证必需字段
-            required_fields = ['name', 'walls', 'player_spawns', 'enemy_spawns']
-            for field in required_fields:
-                if field not in map_data:
-                    print(f"地图数据缺少必需字段: {field}")
-                    return None
-            
-            return map_data
         except Exception as e:
-            print(f"加载地图失败: {e}")
+            print(f"加载地图 {map_name} 时出错: {e}")
             return None
+        
+        # 处理不同格式的地图数据
+        if 'wall_grid_data' in map_data:
+            # 新格式（使用网格坐标）
+            return self._load_new_format_map(map_data, target_grid_size)
+        else:
+            # 旧格式（使用绝对坐标）
+            return self._load_old_format_map(map_data, target_grid_size)
     
-    def get_map_display_name(self, map_name: str) -> str:
+    def _load_new_format_map(self, map_data, target_grid_size):
+        """加载新格式地图（使用网格坐标）"""
+        original_grid_size = map_data.get('grid_size', config.GRID_SIZE)
+        original_width = map_data.get('original_width', 800)
+        original_height = map_data.get('original_height', 600)
+        
+        # 确保原始尺寸至少为800x600
+        if original_width < 800:
+            original_width = 800
+        if original_height < 600:
+            original_height = 600
+        
+        # 转换墙体数据
+        walls = []
+        if 'wall_grid_data' in map_data:
+            for wall_grid in map_data['wall_grid_data']:
+                # 直接使用目标网格大小转换为像素坐标
+                x = wall_grid['grid_x'] * target_grid_size
+                y = wall_grid['grid_y'] * target_grid_size
+                wall_type = wall_grid['type']
+                
+                walls.append({
+                    'x': x,
+                    'y': y,
+                    'type': wall_type
+                })
+        
+        # 转换玩家出生点
+        player_spawns = []
+        
+        # 优先从player_spawns获取原始像素坐标
+        if 'player_spawns' in map_data and map_data['player_spawns']:
+            player_spawns = map_data['player_spawns']
+            print(f"[MapLoader] 从player_spawns获取玩家出生点: {player_spawns}")
+        elif 'player_spawns_grid' in map_data:
+            for spawn_grid in map_data['player_spawns_grid']:
+                x = spawn_grid[0] * target_grid_size
+                y = spawn_grid[1] * target_grid_size
+                player_spawns.append([x, y])
+            print(f"[MapLoader] 从player_spawns_grid转换玩家出生点: {player_spawns}")
+        else:
+            # 默认出生点
+            player_spawns = [[400, 550]]
+            print(f"[MapLoader] 使用默认玩家出生点: {player_spawns}")
+        
+        # 转换敌人出生点
+        enemy_spawns = []
+        
+        # 优先从enemy_spawns获取原始像素坐标
+        if 'enemy_spawns' in map_data and map_data['enemy_spawns']:
+            enemy_spawns = map_data['enemy_spawns']
+            print(f"[MapLoader] 从enemy_spawns获取敌人出生点: {enemy_spawns}")
+        elif 'enemy_spawns_grid' in map_data:
+            for spawn_grid in map_data['enemy_spawns_grid']:
+                x = spawn_grid[0] * target_grid_size
+                y = spawn_grid[1] * target_grid_size
+                enemy_spawns.append([x, y])
+            print(f"[MapLoader] 从enemy_spawns_grid转换敌人出生点: {enemy_spawns}")
+        else:
+            # 默认出生点
+            enemy_spawns = [[400, 50]]
+            print(f"[MapLoader] 使用默认敌人出生点: {enemy_spawns}")
+        
+        # 原始尺寸（从文件加载）
+        map_width = original_width
+        map_height = original_height
+        
+        # 确保尺寸是网格大小的整数倍
+        map_width = (map_width // target_grid_size) * target_grid_size
+        map_height = (map_height // target_grid_size) * target_grid_size
+        
+        # 确保最小尺寸
+        map_width = max(map_width, target_grid_size * 16)  # 最小16列
+        map_height = max(map_height, target_grid_size * 12)  # 最小12行
+        
+        # 确保所有出生点都在地图范围内
+        for spawn in player_spawns + enemy_spawns:
+            if spawn[0] >= map_width:
+                map_width = (spawn[0] // target_grid_size + 1) * target_grid_size
+            if spawn[1] >= map_height:
+                map_height = (spawn[1] // target_grid_size + 1) * target_grid_size
+        
+        # 创建最终的地图数据
+        loaded_map = {
+            "name": map_data.get("name", "unknown"),
+            "width": map_width,
+            "height": map_height,
+            "original_width": original_width,
+            "original_height": original_height,
+            "aspect_ratio": original_width / original_height,
+            "grid_size": target_grid_size,
+            "walls": walls,
+            "player_spawns": player_spawns,
+            "enemy_spawns": enemy_spawns,
+            "wall_grid_data": map_data.get("wall_grid_data", []),
+            "player_spawns_grid": map_data.get("player_spawns_grid", []),
+            "enemy_spawns_grid": map_data.get("enemy_spawns_grid", [])
+        }
+        
+        print(f"成功加载地图 {loaded_map['name']}")
+        print(f"地图尺寸: {loaded_map['width']}x{loaded_map['height']}, 网格大小: {loaded_map['grid_size']}px")
+        print(f"墙体数量: {len(loaded_map['walls'])}, 玩家出生点: {len(loaded_map['player_spawns'])}, 敌人出生点: {len(loaded_map['enemy_spawns'])}")
+        
+        return loaded_map
+    
+    def _get_default_map(self, target_grid_size):
+        """返回默认的硬编码地图数据"""
+        default_map = {
+            "name": "默认地图",
+            "walls": [],
+            "player_spawns": [[400, 550]],
+            "enemy_spawns": [[400, 50]],
+            "grid_size": target_grid_size,
+            "aspect_ratio": 16/9
+        }
+        
+        # 添加一些基本墙体
+        wall_positions = [
+            # 中心区域
+            (300, 200), (350, 200), (400, 200), (450, 200),
+            (300, 250),                          (450, 250),
+            (300, 300),                          (450, 300),
+            (300, 350), (350, 350), (400, 350), (450, 350),
+            
+            # 周围墙体
+            (100, 100), (150, 100), (200, 100), (250, 100),
+            (100, 150),                                      (250, 150),
+            (100, 200),                                      (250, 200),
+            (100, 250),                                      (250, 250),
+            (100, 300),                                      (250, 300),
+            (100, 350), (150, 350), (200, 350), (250, 350),
+            
+            (600, 100), (650, 100), (700, 100), (750, 100),
+            (600, 150),                                      (750, 150),
+            (600, 200),                                      (750, 200),
+            (600, 250),                                      (750, 250),
+            (600, 300),                                      (750, 300),
+            (600, 350), (650, 350), (700, 350), (750, 350),
+            
+            (100, 400), (150, 400), (200, 400), (250, 400),
+            (100, 450),                                      (250, 450),
+            (100, 500),                                      (250, 500),
+            (100, 550), (150, 550), (200, 550), (250, 550),
+            
+            (600, 400), (650, 400), (700, 400), (750, 400),
+            (600, 450),                                      (750, 450),
+            (600, 500),                                      (750, 500),
+            (600, 550), (650, 550), (700, 550), (750, 550)
+        ]
+        
+        # 转换为目标网格大小
+        scaled_walls = []
+        for x, y in wall_positions:
+            # 计算新的墙体位置，保持相对位置不变
+            scaled_x = int(x * (target_grid_size / 50))
+            scaled_y = int(y * (target_grid_size / 50))
+            scaled_walls.append({"x": scaled_x, "y": scaled_y, "type": "brick"})
+        
+        default_map["walls"] = scaled_walls
+        return default_map
+    
+    def _load_old_format_map(self, map_data, target_grid_size):
+        """加载旧格式地图（使用绝对坐标）"""
+        # 获取原始地图信息
+        original_width = map_data.get("width", 800)
+        original_height = map_data.get("height", 600)
+        original_grid_size = map_data.get("grid_size", 20)
+        
+        # 计算缩放因子
+        scale_factor = target_grid_size / original_grid_size
+        
+        # 转换墙体数据
+        walls = []
+        for wall in map_data.get("walls", []):
+            # 转换为网格坐标，然后使用新的网格大小
+            grid_x = int(wall['x'] // original_grid_size)
+            grid_y = int(wall['y'] // original_grid_size)
+            
+            x = grid_x * target_grid_size
+            y = grid_y * target_grid_size
+            wall_type = wall['type']
+            
+            walls.append({
+                'x': x,
+                'y': y,
+                'type': wall_type
+            })
+        
+        # 转换玩家出生点
+        player_spawns = []
+        for spawn in map_data.get("player_spawns", []):
+            grid_x = int(spawn[0] // original_grid_size)
+            grid_y = int(spawn[1] // original_grid_size)
+            x = grid_x * target_grid_size
+            y = grid_y * target_grid_size
+            player_spawns.append([x, y])
+        
+        # 转换敌人出生点
+        enemy_spawns = []
+        for spawn in map_data.get("enemy_spawns", []):
+            grid_x = int(spawn[0] // original_grid_size)
+            grid_y = int(spawn[1] // original_grid_size)
+            x = grid_x * target_grid_size
+            y = grid_y * target_grid_size
+            enemy_spawns.append([x, y])
+        
+        # 计算地图尺寸（基于墙体和出生点的最大坐标）
+        max_x = max([wall['x'] for wall in walls] + [spawn[0] for spawn in player_spawns + enemy_spawns] + [0])
+        max_y = max([wall['y'] for wall in walls] + [spawn[1] for spawn in player_spawns + enemy_spawns] + [0])
+        
+        map_width = max_x + target_grid_size
+        map_height = max_y + target_grid_size
+        
+        # 创建最终的地图数据
+        loaded_map = {
+            "name": map_data.get("name", "unknown"),
+            "width": map_width,
+            "height": map_height,
+            "original_width": original_width,
+            "original_height": original_height,
+            "aspect_ratio": original_width / original_height,
+            "grid_size": target_grid_size,
+            "walls": walls,
+            "player_spawns": player_spawns,
+            "enemy_spawns": enemy_spawns
+        }
+        
+        print(f"成功加载旧格式地图 {loaded_map['name']}")
+        print(f"地图尺寸: {loaded_map['width']}x{loaded_map['height']}, 网格大小: {loaded_map['grid_size']}px")
+        print(f"墙体数量: {len(loaded_map['walls'])}, 玩家出生点: {len(loaded_map['player_spawns'])}, 敌人出生点: {len(loaded_map['enemy_spawns'])}")
+        
+        return loaded_map
+    
+    def get_map_display_name(self, filename):
         """获取地图的显示名称
         
         Args:
-            map_name: 地图文件名（不含扩展名）
+            filename: 地图文件名
         
         Returns:
-            地图的显示名称
+            str: 地图的显示名称
         """
-        map_data = self.load_map(map_name)
-        if map_data and 'name' in map_data:
-            return map_data['name']
-        return map_name
+        try:
+            filepath = os.path.join(self.maps_dir, filename)
+            with open(filepath, 'r', encoding='utf-8') as f:
+                map_data = json.load(f)
+                return map_data.get("name", filename.replace(".json", ""))
+        except Exception as e:
+            print(f"获取地图显示名称时出错: {e}")
+            return filename.replace(".json", "")
+    
+    def add_map(self, map_data, filename=None):
+        """添加新地图
+        
+        Args:
+            map_data: 地图数据
+            filename: 地图文件名（可选）
+        
+        Returns:
+            bool: 是否添加成功
+        """
+        try:
+            if filename is None:
+                filename = f"{map_data.get('name', 'new_map')}.json"
+            
+            if not filename.endswith(".json"):
+                filename += ".json"
+            
+            filepath = os.path.join(self.maps_dir, filename)
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(map_data, f, indent=2, ensure_ascii=False)
+            
+            print(f"成功添加地图: {filename}")
+            
+            # 重新加载地图列表
+            self._load_maps_list()
+            
+            return True
+        except Exception as e:
+            print(f"添加地图时出错: {e}")
+            return False
+    
+    def delete_map(self, map_name):
+        """删除指定名称的地图
+        
+        Args:
+            map_name: 地图名称或文件名
+        
+        Returns:
+            bool: 是否删除成功
+        """
+        try:
+            # 查找地图文件
+            map_filepath = None
+            for map_info in self.maps:
+                if map_info["name"] == map_name or map_info["filename"] == map_name:
+                    map_filepath = map_info["filepath"]
+                    break
+            
+            if not map_filepath:
+                print(f"找不到地图: {map_name}")
+                return False
+            
+            # 删除地图文件
+            os.remove(map_filepath)
+            print(f"成功删除地图: {map_name}")
+            
+            # 重新加载地图列表
+            self._load_maps_list()
+            
+            return True
+        except Exception as e:
+            print(f"删除地图时出错: {e}")
+            return False
 
 
-# 全局地图加载器实例
+# 创建全局地图加载器实例
 map_loader = MapLoader()

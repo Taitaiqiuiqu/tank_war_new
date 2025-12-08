@@ -1,97 +1,100 @@
 #!/usr/bin/env python3
 """
-测试地图编辑器按钮功能
+测试地图编辑器的修改效果
 """
 import os
 import sys
 import pygame
 import pygame_gui
 
-# 添加项目路径
+# 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from src.ui.ui_components import UIManagerWrapper
-from src.ui.screen_manager import ScreenManager, ScreenContext
-from src.ui.map_editor_screen import MapEditorScreen
+# 必须在导入pygame_gui之前初始化i18n
+import src.ui.init_i18n
 
-def test_map_editor_buttons():
-    """测试地图编辑器按钮功能"""
-    print("测试地图编辑器按钮功能...")
+from src.ui.map_editor_screen import MapEditorScreen
+from src.ui.screen_manager import ScreenManager
+
+
+class TestUIManager:
+    """测试用的UI管理器包装类"""
+    def __init__(self, width, height):
+        self.ui_manager = pygame_gui.UIManager((width, height))
+    
+    def get_manager(self):
+        return self.ui_manager
+    
+    def clear(self):
+        pass
+
+
+class TestScreenManager:
+    """测试用的屏幕管理器"""
+    def __init__(self, width, height):
+        self.ui_manager = TestUIManager(width, height)
+
+
+def test_map_editor():
+    """测试地图编辑器的修改效果"""
+    print("测试地图编辑器的修改效果...")
     
     # 初始化pygame
     pygame.init()
     
-    # 创建测试窗口
-    test_window_size = (800, 690)
-    screen = pygame.display.set_mode(test_window_size)
-    pygame.display.set_caption("地图编辑器按钮测试")
+    # 设置窗口尺寸
+    window_width = 1280
+    window_height = 720
+    screen = pygame.display.set_mode((window_width, window_height), pygame.RESIZABLE)
+    pygame.display.set_caption("地图编辑器测试")
     
-    # 创建UI管理器
-    ui_wrapper = UIManagerWrapper(test_window_size[0], test_window_size[1])
-    ui_manager = ui_wrapper.get_manager()
-    
-    # 创建上下文
-    context = ScreenContext()
-    context.next_state = None
+    # 创建测试用的屏幕管理器
+    screen_manager = TestScreenManager(window_width, window_height)
     
     # 创建地图编辑器屏幕
-    map_editor = MapEditorScreen(screen, context, ui_manager)
+    map_editor = MapEditorScreen(screen, None, screen_manager.ui_manager)
     
-    # 模拟进入地图编辑器
+    # 进入地图编辑器
     map_editor.on_enter()
     
     print("地图编辑器初始化完成")
+    print(f"网格设置: {map_editor.GRID_COLS}列 x {map_editor.GRID_ROWS}行")
+    print(f"地图尺寸: {map_editor.MAP_WIDTH}x{map_editor.GAME_HEIGHT} 像素")
     
-    # 测试按钮是否存在
-    buttons = [
-        'btn_brick', 'btn_steel', 'btn_grass', 'btn_river', 'btn_base', 'btn_eraser',
-        'btn_player_spawn', 'btn_enemy_spawn', 'btn_save', 'btn_load', 'btn_clear', 'btn_back'
-    ]
+    # 主循环
+    clock = pygame.time.Clock()
+    running = True
     
-    missing_buttons = []
-    for button_name in buttons:
-        if not hasattr(map_editor, button_name):
-            missing_buttons.append(button_name)
-        else:
-            print(f"✓ {button_name} 按钮存在")
-    
-    if missing_buttons:
-        print(f"❌ 缺失按钮: {missing_buttons}")
-    else:
-        print("✓ 所有按钮都存在")
-    
-    # 测试事件处理
-    test_events = [
-        pygame_gui.UI_BUTTON_PRESSED,
-        pygame.MOUSEBUTTONDOWN,
-        pygame.MOUSEBUTTONUP,
-        pygame.MOUSEMOTION
-    ]
-    
-    print("测试事件处理...")
-    for event_type in test_events:
-        try:
-            if event_type == pygame_gui.UI_BUTTON_PRESSED:
-                # 创建模拟按钮事件
-                mock_event = pygame.event.Event(event_type, {'ui_element': map_editor.btn_brick})
-            else:
-                mock_event = pygame.event.Event(event_type, {'pos': (100, 100)})
+    while running:
+        time_delta = clock.tick(60) / 1000.0
+        
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.VIDEORESIZE:
+                # 处理窗口大小改变
+                map_editor.handle_window_resized(event.w, event.h)
             
-            map_editor.handle_event(mock_event)
-            print(f"✓ 事件类型 {event_type} 处理成功")
-        except Exception as e:
-            print(f"❌ 事件类型 {event_type} 处理失败: {e}")
+            # 处理UI事件
+            map_editor.manager.process_events(event)
+            
+            # 处理地图编辑器事件
+            map_editor.handle_event(event)
+        
+        # 更新UI
+        map_editor.manager.update(time_delta)
+        
+        # 渲染地图编辑器
+        map_editor.render()
+        
+        # 更新显示
+        pygame.display.flip()
     
-    # 测试窗口大小改变
-    print("测试窗口大小改变...")
-    try:
-        map_editor.handle_window_resized(800, 600)
-        print("✓ 窗口大小改变处理成功")
-    except Exception as e:
-        print(f"❌ 窗口大小改变处理失败: {e}")
-    
-    print("测试完成！")
+    # 退出地图编辑器
+    map_editor.on_exit()
     pygame.quit()
+    print("测试完成！")
+
 
 if __name__ == "__main__":
-    test_map_editor_buttons()
+    test_map_editor()

@@ -1,7 +1,81 @@
 {
   "name": "new_map1",
-  "width": 800,
-  "height": 600,
+  "description": "",
+  "original_width": 800,
+  "original_height": 600,
+  "aspect_ratio": 1.7777777777777777,
+  "width": 1280,
+  "height": 720,
+  "grid_size": 50,
+  "wall_grid_data": [
+    {
+      "grid_x": 5,
+      "grid_y": 9,
+      "type": 2
+    },
+    {
+      "grid_x": 6,
+      "grid_y": 9,
+      "type": 2
+    },
+    {
+      "grid_x": 7,
+      "grid_y": 9,
+      "type": 2
+    },
+    {
+      "grid_x": 8,
+      "grid_y": 9,
+      "type": 2
+    },
+    {
+      "grid_x": 10,
+      "grid_y": 9,
+      "type": 2
+    },
+    {
+      "grid_x": 11,
+      "grid_y": 9,
+      "type": 2
+    },
+    {
+      "grid_x": 12,
+      "grid_y": 9,
+      "type": 2
+    },
+    {
+      "grid_x": 13,
+      "grid_y": 9,
+      "type": 2
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 9,
+      "type": 2
+    },
+    {
+      "grid_x": 15,
+      "grid_y": 9,
+      "type": 2
+    },
+    {
+      "grid_x": 9,
+      "grid_y": 9,
+      "type": 2
+    }
+  ],
+  "player_spawns_grid": [
+    [
+      4,
+      9
+    ]
+  ],
+  "enemy_spawns_grid": [
+    [
+      8,
+      1
+    ]
+  ],
   "walls": [
     {
       "x": 250,

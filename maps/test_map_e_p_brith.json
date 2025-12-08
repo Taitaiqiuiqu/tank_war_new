@@ -1,7 +1,418 @@
 {
   "name": "test_map_e_p_brith",
-  "width": 800,
-  "height": 600,
+  "description": "",
+  "original_width": 800,
+  "original_height": 600,
+  "aspect_ratio": 1.7777777777777777,
+  "width": 1280,
+  "height": 720,
+  "grid_size": 50,
+  "wall_grid_data": [
+    {
+      "grid_x": 1,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 2,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 3,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 4,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 5,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 6,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 7,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 8,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 9,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 10,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 11,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 12,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 13,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 1,
+      "grid_y": 2,
+      "type": 1
+    },
+    {
+      "grid_x": 2,
+      "grid_y": 2,
+      "type": 1
+    },
+    {
+      "grid_x": 3,
+      "grid_y": 2,
+      "type": 1
+    },
+    {
+      "grid_x": 4,
+      "grid_y": 2,
+      "type": 1
+    },
+    {
+      "grid_x": 5,
+      "grid_y": 2,
+      "type": 1
+    },
+    {
+      "grid_x": 6,
+      "grid_y": 2,
+      "type": 1
+    },
+    {
+      "grid_x": 7,
+      "grid_y": 2,
+      "type": 1
+    },
+    {
+      "grid_x": 8,
+      "grid_y": 2,
+      "type": 1
+    },
+    {
+      "grid_x": 9,
+      "grid_y": 2,
+      "type": 1
+    },
+    {
+      "grid_x": 10,
+      "grid_y": 2,
+      "type": 1
+    },
+    {
+      "grid_x": 11,
+      "grid_y": 2,
+      "type": 1
+    },
+    {
+      "grid_x": 12,
+      "grid_y": 2,
+      "type": 1
+    },
+    {
+      "grid_x": 13,
+      "grid_y": 2,
+      "type": 1
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 2,
+      "type": 1
+    },
+    {
+      "grid_x": 1,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 2,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 3,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 4,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 5,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 6,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 7,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 8,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 9,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 10,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 11,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 12,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 13,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 1,
+      "grid_y": 4,
+      "type": 3
+    },
+    {
+      "grid_x": 2,
+      "grid_y": 4,
+      "type": 3
+    },
+    {
+      "grid_x": 3,
+      "grid_y": 4,
+      "type": 3
+    },
+    {
+      "grid_x": 4,
+      "grid_y": 4,
+      "type": 3
+    },
+    {
+      "grid_x": 5,
+      "grid_y": 4,
+      "type": 3
+    },
+    {
+      "grid_x": 6,
+      "grid_y": 4,
+      "type": 3
+    },
+    {
+      "grid_x": 8,
+      "grid_y": 4,
+      "type": 3
+    },
+    {
+      "grid_x": 9,
+      "grid_y": 4,
+      "type": 3
+    },
+    {
+      "grid_x": 10,
+      "grid_y": 4,
+      "type": 3
+    },
+    {
+      "grid_x": 11,
+      "grid_y": 4,
+      "type": 3
+    },
+    {
+      "grid_x": 12,
+      "grid_y": 4,
+      "type": 3
+    },
+    {
+      "grid_x": 13,
+      "grid_y": 4,
+      "type": 3
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 4,
+      "type": 3
+    },
+    {
+      "grid_x": 7,
+      "grid_y": 4,
+      "type": 3
+    },
+    {
+      "grid_x": 1,
+      "grid_y": 5,
+      "type": 4
+    },
+    {
+      "grid_x": 2,
+      "grid_y": 5,
+      "type": 4
+    },
+    {
+      "grid_x": 3,
+      "grid_y": 5,
+      "type": 4
+    },
+    {
+      "grid_x": 4,
+      "grid_y": 5,
+      "type": 4
+    },
+    {
+      "grid_x": 5,
+      "grid_y": 5,
+      "type": 4
+    },
+    {
+      "grid_x": 6,
+      "grid_y": 5,
+      "type": 4
+    },
+    {
+      "grid_x": 7,
+      "grid_y": 5,
+      "type": 4
+    },
+    {
+      "grid_x": 8,
+      "grid_y": 5,
+      "type": 4
+    },
+    {
+      "grid_x": 9,
+      "grid_y": 5,
+      "type": 4
+    },
+    {
+      "grid_x": 10,
+      "grid_y": 5,
+      "type": 4
+    },
+    {
+      "grid_x": 11,
+      "grid_y": 5,
+      "type": 4
+    },
+    {
+      "grid_x": 12,
+      "grid_y": 5,
+      "type": 4
+    },
+    {
+      "grid_x": 13,
+      "grid_y": 5,
+      "type": 4
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 5,
+      "type": 4
+    },
+    {
+      "grid_x": 7,
+      "grid_y": 11,
+      "type": 5
+    },
+    {
+      "grid_x": 6,
+      "grid_y": 11,
+      "type": 2
+    },
+    {
+      "grid_x": 8,
+      "grid_y": 11,
+      "type": 2
+    },
+    {
+      "grid_x": 7,
+      "grid_y": 10,
+      "type": 2
+    },
+    {
+      "grid_x": 6,
+      "grid_y": 10,
+      "type": 2
+    },
+    {
+      "grid_x": 8,
+      "grid_y": 10,
+      "type": 2
+    }
+  ],
+  "player_spawns_grid": [
+    [
+      5,
+      11
+    ],
+    [
+      9,
+      11
+    ]
+  ],
+  "enemy_spawns_grid": [
+    [
+      0,
+      1
+    ],
+    [
+      7,
+      1
+    ],
+    [
+      15,
+      1
+    ]
+  ],
   "walls": [
     {
       "x": 50,
@@ -357,30 +768,55 @@
       "x": 350,
       "y": 550,
       "type": 5
+    },
+    {
+      "x": 300,
+      "y": 550,
+      "type": 2
+    },
+    {
+      "x": 400,
+      "y": 550,
+      "type": 2
+    },
+    {
+      "x": 350,
+      "y": 500,
+      "type": 2
+    },
+    {
+      "x": 300,
+      "y": 500,
+      "type": 2
+    },
+    {
+      "x": 400,
+      "y": 500,
+      "type": 2
     }
   ],
   "player_spawns": [
     [
-      300,
+      250,
       550
     ],
     [
-      400,
+      450,
       550
     ]
   ],
   "enemy_spawns": [
     [
       0,
-      0
+      50
     ],
     [
       350,
-      0
+      50
     ],
     [
       750,
-      0
+      50
     ]
   ]
 }

@@ -1,5 +1,5 @@
 """
-地图编辑器界面
+地图编辑器界面 - 适配16:9屏幕比例和动态分辨率
 """
 # 必须在导入pygame_gui之前初始化i18n
 import src.ui.init_i18n
@@ -14,25 +14,31 @@ from pygame_gui.windows import UIFileDialog, UIMessageWindow
 from src.ui.screen_manager import BaseScreen
 from src.utils.resource_manager import resource_manager
 from src.game_engine.wall import Wall
+from src.config.game_config import config
 
 
 class MapEditorScreen(BaseScreen):
-    """地图编辑器屏幕"""
+    """地图编辑器屏幕 - 使用与游戏世界一致的固定网格大小"""
     
-    GRID_SIZE = 50
-    MAP_WIDTH = 800  # 基础地图宽度
-    GAME_HEIGHT = 600  # 实际游戏区域高度
+    # 使用与游戏相同的网格大小
+    GRID_SIZE = config.GRID_SIZE
+    
+    # 固定的网格行列数（与游戏世界保持一致）
+    FIXED_GRID_COLS = 28
+    FIXED_GRID_ROWS = 21
+    
+    # 根据固定网格计算的地图尺寸
+    DEFAULT_MAP_WIDTH = FIXED_GRID_COLS * GRID_SIZE
+    DEFAULT_GAME_HEIGHT = FIXED_GRID_ROWS * GRID_SIZE
+    
     TOOLBAR_HEIGHT = 90  # 工具栏高度
-    MAP_HEIGHT = GAME_HEIGHT + TOOLBAR_HEIGHT  # 包含工具栏在内的总高度
-    GRID_COLS = MAP_WIDTH // GRID_SIZE  # 16
-    GRID_ROWS = GAME_HEIGHT // GRID_SIZE  # 12
     
     # 工具类型（对应wall.py中的常量）
-    TOOL_BRICK = 1      # 砖块（可摧毁）
-    TOOL_STEEL = 2      # 钢块（不可摧毁）
-    TOOL_GRASS = 3      # 草地
-    TOOL_RIVER = 4      # 河流
-    TOOL_BASE = 5       # 基地（老鹰）
+    TOOL_BRICK = Wall.BRICK      # 砖块（可摧毁）
+    TOOL_STEEL = Wall.STEEL      # 钢块（不可摧毁）
+    TOOL_GRASS = Wall.GRASS      # 草地
+    TOOL_RIVER = Wall.RIVER      # 河流
+    TOOL_BASE = Wall.BASE       # 基地（老鹰）
     TOOL_ERASER = 99    # 橡皮擦（特殊工具）
     TOOL_PLAYER_SPAWN = 100  # 玩家出生点
     TOOL_ENEMY_SPAWN = 101   # 敌人出生点
@@ -41,27 +47,34 @@ class MapEditorScreen(BaseScreen):
         super().__init__(surface, context, ui_manager, network_manager)
         self.current_tool = self.TOOL_BRICK
         self.walls = []  # List of {x, y, type}
-        self.player_spawns = [[400, 550]]
-        self.enemy_spawns = [[400, 50]]
+        
+        # 初始化空的出生点列表，不自动添加出生点
+        self.player_spawns = []  # 玩家出生点
+        self.enemy_spawns = []  # 敌人出生点
+        
         self.is_dragging = False
         self.map_name = "new_map"
         
-        # 工具栏高度 - 现在依赖窗口管理器动态获取
-        self.toolbar_height = 90
+        # 初始化尺寸参数（基于固定网格）
+        self.MAP_WIDTH = self.DEFAULT_MAP_WIDTH
+        self.GAME_HEIGHT = self.DEFAULT_GAME_HEIGHT
+        self.MAP_HEIGHT = self.GAME_HEIGHT + self.TOOLBAR_HEIGHT
+        
+        # 使用固定的网格参数（与游戏世界保持一致）
+        self.GRID_COLS = self.FIXED_GRID_COLS
+        self.GRID_ROWS = self.FIXED_GRID_ROWS
+        
+        # 工具栏高度
+        self.toolbar_height = self.TOOLBAR_HEIGHT
+        
+        # 画布偏移量（用于渲染）
+        self.canvas_y_offset = self.TOOLBAR_HEIGHT
+        
+        # 计算并保存宽高比
+        self.ASPECT_RATIO = self.MAP_WIDTH / self.GAME_HEIGHT
         
     def on_enter(self):
         super().on_enter()
-        
-        # 进入编辑器时，通过窗口管理器调整窗口大小
-        try:
-            window_manager = self.get_window_manager()
-            if window_manager:
-                # 使用窗口管理器的预设配置进入地图编辑器模式
-                window_manager.resize_to_config('map_editor')
-            else:
-                print("警告: 无法获取窗口管理器")
-        except Exception as e:
-            print(f"进入编辑器时调整窗口大小时出错: {e}")
         
         # 确保使用最新的UI管理器实例
         self.manager = self.ui_manager.get_manager()
@@ -174,58 +187,22 @@ class MapEditorScreen(BaseScreen):
             manager=self.manager
         )
         self.map_name_entry.set_text(self.map_name)
+        
+        # 显示当前网格信息
+        grid_info = f"网格: {self.GRID_COLS}x{self.GRID_ROWS} (尺寸: {self.MAP_WIDTH}x{self.GAME_HEIGHT})"
+        self.grid_info_label = UILabel(
+            relative_rect=pygame.Rect((800, btn_y2), (250, 30)),
+            text=grid_info,
+            manager=self.manager
+        )
     
     def handle_event(self, event):
-        # 移除 super().handle_event(event)，因为 ScreenManager 已经处理了 UI 事件
-        # 避免双重处理导致的问题
-        
-        if event.type == pygame.KEYDOWN:
-            # 添加键盘快捷键支持
-            if event.key == pygame.K_1:
-                self.current_tool = self.TOOL_BRICK
-            elif event.key == pygame.K_2:
-                self.current_tool = self.TOOL_STEEL
-            elif event.key == pygame.K_3:
-                self.current_tool = self.TOOL_GRASS
-            elif event.key == pygame.K_4:
-                self.current_tool = self.TOOL_RIVER
-            elif event.key == pygame.K_5:
-                self.current_tool = self.TOOL_BASE
-            elif event.key == pygame.K_6:
-                self.current_tool = self.TOOL_ERASER
-            elif event.key == pygame.K_7:
-                self.current_tool = self.TOOL_PLAYER_SPAWN
-            elif event.key == pygame.K_8:
-                self.current_tool = self.TOOL_ENEMY_SPAWN
-        
+        # 处理UI事件
         if event.type == pygame_gui.UI_BUTTON_PRESSED:
-            # 使用文本内容进行判断，避免对象ID不一致的问题
-            btn_text = getattr(event.ui_element, 'text', '')
-            
-            if btn_text == '砖墙' or event.ui_element == self.btn_brick:
+            if event.ui_element == self.btn_brick:
                 self.current_tool = self.TOOL_BRICK
-            elif btn_text == '钢墙' or event.ui_element == self.btn_steel:
+            elif event.ui_element == self.btn_steel:
                 self.current_tool = self.TOOL_STEEL
-            elif btn_text == '草地' or event.ui_element == self.btn_grass:
-                self.current_tool = self.TOOL_GRASS
-            elif btn_text == '河流' or event.ui_element == self.btn_river:
-                self.current_tool = self.TOOL_RIVER
-            elif btn_text == '基地' or event.ui_element == self.btn_base:
-                self.current_tool = self.TOOL_BASE
-            elif btn_text == '橡皮擦' or event.ui_element == self.btn_eraser:
-                self.current_tool = self.TOOL_ERASER
-            elif btn_text == '玩家出生点' or event.ui_element == self.btn_player_spawn:
-                self.current_tool = self.TOOL_PLAYER_SPAWN
-            elif btn_text == '敌人出生点' or event.ui_element == self.btn_enemy_spawn:
-                self.current_tool = self.TOOL_ENEMY_SPAWN
-            elif btn_text == '保存' or event.ui_element == self.btn_save:
-                self._save_map()
-            elif btn_text == '加载' or event.ui_element == self.btn_load:
-                self._load_map()
-            elif btn_text == '清空' or event.ui_element == self.btn_clear:
-                self.walls.clear()
-            elif btn_text == '返回' or event.ui_element == self.btn_back:
-                self.context.next_state = "menu"
             elif event.ui_element == self.btn_grass:
                 self.current_tool = self.TOOL_GRASS
             elif event.ui_element == self.btn_river:
@@ -243,109 +220,201 @@ class MapEditorScreen(BaseScreen):
             elif event.ui_element == self.btn_load:
                 self._load_map()
             elif event.ui_element == self.btn_clear:
-                self.walls.clear()
+                self._clear_map()
             elif event.ui_element == self.btn_back:
-                self.context.next_state = "menu"
+                # 返回到主菜单
+                if hasattr(self.context, 'screen_manager'):
+                    self.context.screen_manager.set_state("menu")
+                else:
+                    print("无法获取屏幕管理器")
         
+        # 处理鼠标事件
         elif event.type == pygame.MOUSEBUTTONDOWN:
-            if event.button == 1:  # Left click
+            if event.button == 1:  # 左键点击
+                pos = pygame.mouse.get_pos()
+                self._handle_click(pos)
                 self.is_dragging = True
-                self._handle_click(event.pos)
-            elif event.button == 3:  # Right click
-                self._remove_item_at(event.pos)
         
         elif event.type == pygame.MOUSEBUTTONUP:
-            if event.button == 1:
+            if event.button == 1:  # 左键释放
                 self.is_dragging = False
         
         elif event.type == pygame.MOUSEMOTION:
             if self.is_dragging:
-                self._handle_click(event.pos)
+                pos = pygame.mouse.get_pos()
+                self._handle_click(pos)
+        
+        # 处理键盘事件
+        elif event.type == pygame.KEYDOWN:
+            # 添加键盘快捷键支持
+            if event.key == pygame.K_1:
+                self.current_tool = self.TOOL_BRICK
+            elif event.key == pygame.K_2:
+                self.current_tool = self.TOOL_STEEL
+            elif event.key == pygame.K_3:
+                self.current_tool = self.TOOL_GRASS
+            elif event.key == pygame.K_4:
+                self.current_tool = self.TOOL_RIVER
+            elif event.key == pygame.K_5:
+                self.current_tool = self.TOOL_BASE
+            elif event.key == pygame.K_e:
+                self.current_tool = self.TOOL_ERASER
+            elif event.key == pygame.K_p:
+                self.current_tool = self.TOOL_PLAYER_SPAWN
+            elif event.key == pygame.K_q:
+                self.current_tool = self.TOOL_ENEMY_SPAWN
+            elif event.key == pygame.K_s and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                self._save_map()
+            elif event.key == pygame.K_l and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                self._load_map()
+            elif event.key == pygame.K_ESCAPE:
+                # 返回到主菜单
+                if hasattr(self.context, 'screen_manager'):
+                    self.context.screen_manager.set_state("menu")
+                else:
+                    print("无法获取屏幕管理器")
+        
+        # 处理窗口大小改变事件
+        elif event.type == pygame.VIDEORESIZE:
+            self.handle_window_resized(event.size[0], event.size[1])
     
     def _handle_click(self, pos):
-        """处理鼠标点击"""
+        """处理鼠标点击 - 使用与游戏相同的坐标系统，适应居中显示的界面"""
         x, y = pos
         
-        # 检查是否在地图区域内（工具栏占用了前90像素的高度）
-        if y < 90:
+        # 计算地图区域的居中偏移量和缩放因子（与渲染保持一致）
+        window_width, window_height = self.surface.get_size()
+        map_width = self.MAP_WIDTH
+        map_height = self.GAME_HEIGHT
+        toolbar_height = self.TOOLBAR_HEIGHT
+        
+        # 计算缩放比例，确保地图完整显示在屏幕上
+        available_width = window_width
+        available_height = window_height - toolbar_height
+        
+        # 计算水平和垂直缩放比例
+        scale_x = available_width / map_width
+        scale_y = available_height / map_height
+        
+        # 使用较小的缩放比例，确保地图完整显示
+        scale_factor = min(scale_x, scale_y, 1.0)  # 不超过1.0倍缩放
+        
+        # 计算缩放后的地图尺寸
+        scaled_map_width = int(map_width * scale_factor)
+        scaled_map_height = int(map_height * scale_factor)
+        scaled_grid_size = int(self.GRID_SIZE * scale_factor)
+        
+        # 计算居中偏移
+        x_offset = (window_width - scaled_map_width) // 2
+        y_offset = (window_height - toolbar_height - scaled_map_height) // 2 + toolbar_height
+        
+        # 检查是否在地图区域内
+        if y < y_offset or y >= y_offset + scaled_map_height or x < x_offset or x >= x_offset + scaled_map_width:
             return
         
-        # 转换为网格坐标，直接使用屏幕坐标计算（窗口已增大，无需偏移）
-        grid_x = (x // self.GRID_SIZE) * self.GRID_SIZE
-        # 游戏坐标系的y坐标（从90像素开始，对应游戏中的0坐标）
-        grid_y = ((y - 90) // self.GRID_SIZE) * self.GRID_SIZE
+        # 转换为网格坐标，考虑缩放因子
+        grid_x = (x - x_offset) // scaled_grid_size
+        grid_y = (y - y_offset) // scaled_grid_size
+        
+        # 转换为游戏坐标系，使用原始GRID_SIZE
+        game_x = grid_x * self.GRID_SIZE
+        game_y = grid_y * self.GRID_SIZE
         
         # 检查边界，确保在有效地图范围内
-        if grid_x < 0 or grid_x >= self.MAP_WIDTH or grid_y < 0 or grid_y >= self.MAP_HEIGHT:
+        if game_x < 0 or game_x >= self.MAP_WIDTH or game_y < 0 or game_y >= self.GAME_HEIGHT:
             return
         
         if self.current_tool == self.TOOL_ERASER:
-            self._remove_item_at(pos)
+            self._remove_item_at(game_x, game_y)
         elif self.current_tool == self.TOOL_PLAYER_SPAWN:
-            # 检查该位置是否有墙体或老鹰或敌人出生点
-            has_wall = any(w['x'] == grid_x and w['y'] == grid_y for w in self.walls)
-            overlaps_enemy = any(s[0] == grid_x and s[1] == grid_y for s in self.enemy_spawns)
-            overlaps_player = any(s[0] == grid_x and s[1] == grid_y for s in self.player_spawns)
+            # 检查该位置是否有墙体或敌人出生点
+            has_wall = any(w['x'] == game_x and w['y'] == game_y for w in self.walls)
+            overlaps_enemy = any(s[0] == game_x and s[1] == game_y for s in self.enemy_spawns)
+            overlaps_player = any(s[0] == game_x and s[1] == game_y for s in self.player_spawns)
             
             # 如果没有墙体、敌人出生点且不重复，则放置玩家出生点
             if not has_wall and not overlaps_enemy and not overlaps_player:
-                self.player_spawns.append([grid_x, grid_y])
+                self.player_spawns.append([game_x, game_y])
         elif self.current_tool == self.TOOL_ENEMY_SPAWN:
-            # 检查该位置是否有墙体或老鹰或玩家出生点
-            has_wall = any(w['x'] == grid_x and w['y'] == grid_y for w in self.walls)
-            overlaps_player = any(s[0] == grid_x and s[1] == grid_y for s in self.player_spawns)
-            overlaps_enemy = any(s[0] == grid_x and s[1] == grid_y for s in self.enemy_spawns)
+            # 检查该位置是否有墙体或玩家出生点
+            has_wall = any(w['x'] == game_x and w['y'] == game_y for w in self.walls)
+            overlaps_player = any(s[0] == game_x and s[1] == game_y for s in self.player_spawns)
+            overlaps_enemy = any(s[0] == game_x and s[1] == game_y for s in self.enemy_spawns)
             
             # 如果没有墙体、玩家出生点且不重复，则放置敌人出生点
             if not has_wall and not overlaps_player and not overlaps_enemy:
-                self.enemy_spawns.append([grid_x, grid_y])
+                self.enemy_spawns.append([game_x, game_y])
         else:
-            # 放置墙体或老鹰，使用游戏坐标系
-            # 检查是否与玩家出生点重叠
-            overlaps_player = any(s[0] == grid_x and s[1] == grid_y for s in self.player_spawns)
-            # 检查是否与敌人出生点重叠
-            overlaps_enemy = any(s[0] == grid_x and s[1] == grid_y for s in self.enemy_spawns)
-            # 检查该位置是否已有墙体（如果有则不再添加，包括其他墙体和老鹰）
-            wall_exists = any(w['x'] == grid_x and w['y'] == grid_y for w in self.walls)
+            # 放置墙体
+            # 检查是否与玩家出生点或敌人出生点重叠
+            overlaps_player = any(s[0] == game_x and s[1] == game_y for s in self.player_spawns)
+            overlaps_enemy = any(s[0] == game_x and s[1] == game_y for s in self.enemy_spawns)
             
-            # 只有当不重叠时才放置墙体或老鹰
-            if not wall_exists and not overlaps_player and not overlaps_enemy:
+            # 只有当不重叠时才放置墙体
+            if not overlaps_player and not overlaps_enemy:
                 # 先移除该位置的墙体（为了避免意外的重复）
-                self.walls = [w for w in self.walls if not (w['x'] == grid_x and w['y'] == grid_y)]
-                # 添加新墙体或老鹰
-                self.walls.append({'x': grid_x, 'y': grid_y, 'type': self.current_tool})
+                self.walls = [w for w in self.walls if not (w['x'] == game_x and w['y'] == game_y)]
+                # 添加新墙体
+                self.walls.append({'x': game_x, 'y': game_y, 'type': self.current_tool})
     
-    def _remove_item_at(self, pos):
-        """删除指定位置的物品（墙体或出生点）"""
-        x, y = pos
-        if y < 90:
-            return
-        
-        grid_x = (x // self.GRID_SIZE) * self.GRID_SIZE
-        grid_y = ((y - 90) // self.GRID_SIZE) * self.GRID_SIZE
-        
+    def _remove_item_at(self, game_x, game_y):
+        """删除指定位置的物品（墙体或出生点） - 使用游戏坐标系"""
         # 删除墙体
-        self.walls = [w for w in self.walls if not (w['x'] == grid_x and w['y'] == grid_y)]
+        self.walls = [w for w in self.walls if not (w['x'] == game_x and w['y'] == game_y)]
         
         # 删除玩家出生点
-        self.player_spawns = [s for s in self.player_spawns if not (s[0] == grid_x and s[1] == grid_y)]
+        self.player_spawns = [s for s in self.player_spawns if not (s[0] == game_x and s[1] == game_y)]
         
         # 删除敌人出生点
-        self.enemy_spawns = [s for s in self.enemy_spawns if not (s[0] == grid_x and s[1] == grid_y)]
+        self.enemy_spawns = [s for s in self.enemy_spawns if not (s[0] == game_x and s[1] == game_y)]
     
     def _save_map(self):
-        """保存地图"""
+        """保存地图 - 使用标准化的地图格式，支持任意屏幕比例和分辨率"""
         self.map_name = self.map_name_entry.get_text()
         
-        # 保存地图数据，确保地图尺寸和游戏中一致
-        # 注意：
-        # 1. 地图尺寸应保持与游戏窗口一致（800x600）
-        # 2. 墙体和出生点的y坐标已经是游戏坐标系中的坐标（不包含工具栏偏移）
+        # 确保地图名称有效
+        if not self.map_name.strip():
+            self.map_name = "new_map"
+        
+        # 保存地图数据，支持16:9比例和自适应游戏窗口尺寸
+        # 1. 保存墙体的网格坐标而非绝对像素坐标
+        # 2. 记录原始地图尺寸、网格大小和宽高比用于适配
+        grid_size = self.GRID_SIZE
+        
+        # 将墙体坐标转换为网格坐标
+        wall_grid_data = []
+        for wall in self.walls:
+            grid_x = wall['x'] // grid_size
+            grid_y = wall['y'] // grid_size
+            wall_grid_data.append({
+                "grid_x": grid_x,
+                "grid_y": grid_y,
+                "type": wall['type']
+            })
+        
+        # 将出生点转换为网格坐标
+        player_spawns_grid = []
+        for spawn in self.player_spawns:
+            grid_x = spawn[0] // grid_size
+            grid_y = spawn[1] // grid_size
+            player_spawns_grid.append([grid_x, grid_y])
+        
+        enemy_spawns_grid = []
+        for spawn in self.enemy_spawns:
+            grid_x = spawn[0] // grid_size
+            grid_y = spawn[1] // grid_size
+            enemy_spawns_grid.append([grid_x, grid_y])
+        
         map_data = {
             "name": self.map_name,
-            "width": self.MAP_WIDTH,
-            "height": self.GAME_HEIGHT,  # 保存游戏区域高度600，不包含工具栏
-            "walls": self.walls,        # 墙体坐标已经是正确的游戏坐标系
+            "original_width": self.MAP_WIDTH,
+            "original_height": self.GAME_HEIGHT,
+            "aspect_ratio": self.ASPECT_RATIO,  # 保存宽高比
+            "grid_size": grid_size,
+            "wall_grid_data": wall_grid_data,  # 使用网格坐标
+            "player_spawns_grid": player_spawns_grid,
+            "enemy_spawns_grid": enemy_spawns_grid,
+            "walls": self.walls,  # 保留原始绝对坐标以便向后兼容
             "player_spawns": self.player_spawns,
             "enemy_spawns": self.enemy_spawns
         }
@@ -361,13 +430,15 @@ class MapEditorScreen(BaseScreen):
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(map_data, f, indent=2, ensure_ascii=False)
             print(f"地图已保存: {filename}")
+            print(f"地图尺寸: {self.MAP_WIDTH}x{self.GAME_HEIGHT}, 比例: {self.ASPECT_RATIO:.2f}:1")
+            print(f"墙体数量: {len(self.walls)}, 玩家出生点: {len(self.player_spawns)}, 敌人出生点: {len(self.enemy_spawns)}")
         except Exception as e:
             print(f"保存地图失败: {e}")
     
     def _load_map(self):
-        """加载地图"""
-        map_name = self.map_name_entry.get_text()
-        filename = os.path.join("maps", f"{map_name}.json")
+        """加载地图 - 支持16:9比例适配"""
+        self.map_name = self.map_name_entry.get_text()
+        filename = os.path.join("maps", f"{self.map_name}.json")
         
         if not os.path.exists(filename):
             print(f"地图文件不存在: {filename}")
@@ -377,139 +448,199 @@ class MapEditorScreen(BaseScreen):
             with open(filename, 'r', encoding='utf-8') as f:
                 map_data = json.load(f)
             
-            self.walls = map_data.get('walls', [])
-            self.player_spawns = map_data.get('player_spawns', [[400, 550]])
-            self.enemy_spawns = map_data.get('enemy_spawns', [[400, 50]])
+            # 检查是否有网格数据（新格式）
+            if 'wall_grid_data' in map_data:
+                # 使用网格坐标数据加载，并根据当前尺寸进行调整
+                grid_size = map_data.get('grid_size', self.GRID_SIZE)
+                
+                # 加载墙体数据
+                self.walls = []
+                for wall_grid in map_data['wall_grid_data']:
+                    # 直接使用游戏网格大小转换为像素坐标
+                    game_x = wall_grid['grid_x'] * self.GRID_SIZE
+                    game_y = wall_grid['grid_y'] * self.GRID_SIZE
+                    
+                    self.walls.append({
+                        'x': game_x,
+                        'y': game_y,
+                        'type': wall_grid['type']
+                    })
+                
+                # 加载玩家出生点
+                self.player_spawns = []
+                for spawn_grid in map_data.get('player_spawns_grid', []):
+                    game_x = spawn_grid[0] * self.GRID_SIZE
+                    game_y = spawn_grid[1] * self.GRID_SIZE
+                    self.player_spawns.append([game_x, game_y])
+                
+                # 加载敌人出生点
+                self.enemy_spawns = []
+                for spawn_grid in map_data.get('enemy_spawns_grid', []):
+                    game_x = spawn_grid[0] * self.GRID_SIZE
+                    game_y = spawn_grid[1] * self.GRID_SIZE
+                    self.enemy_spawns.append([game_x, game_y])
+            else:
+                # 旧格式处理 - 兼容旧地图
+                self.walls = map_data.get('walls', [])
+                self.player_spawns = map_data.get('player_spawns', [])
+                self.enemy_spawns = map_data.get('enemy_spawns', [])
+                
+                # 确保出生点在地图范围内
+                self.player_spawns = [spawn for spawn in self.player_spawns 
+                                     if 0 <= spawn[0] < self.MAP_WIDTH and 0 <= spawn[1] < self.GAME_HEIGHT]
+                self.enemy_spawns = [spawn for spawn in self.enemy_spawns 
+                                    if 0 <= spawn[0] < self.MAP_WIDTH and 0 <= spawn[1] < self.GAME_HEIGHT]
             
-            # 兼容旧格式（如果是单个坐标列表的列表，但我们现在直接用列表）
-            # 实际上 load_map 返回的已经是列表了，这里主要是确保默认值
-            if not self.player_spawns: self.player_spawns = [[400, 550]]
-            if not self.enemy_spawns: self.enemy_spawns = [[400, 50]]
+            # 确保有默认出生点
+            if not self.player_spawns:
+                # 根据当前尺寸设置默认玩家出生点
+                mid_x = self.MAP_WIDTH // 2
+                spawn_y = self.GAME_HEIGHT - self.GRID_SIZE
+                self.player_spawns = [[mid_x - self.GRID_SIZE * 2, spawn_y], [mid_x + self.GRID_SIZE * 2, spawn_y]]
+            
+            if not self.enemy_spawns:
+                # 根据当前尺寸设置默认敌人出生点
+                spawn_y = self.GRID_SIZE
+                self.enemy_spawns = [[self.GRID_SIZE * 2, spawn_y], [self.MAP_WIDTH // 2, spawn_y], [self.MAP_WIDTH - self.GRID_SIZE * 2, spawn_y]]
             
             print(f"地图已加载: {filename}")
+            print(f"加载了 {len(self.walls)} 个墙体，{len(self.player_spawns)} 个玩家出生点，{len(self.enemy_spawns)} 个敌人出生点")
         except Exception as e:
             print(f"加载地图失败: {e}")
     
+    def _clear_map(self):
+        """清空地图"""
+        self.walls = []
+        self.player_spawns = []
+        self.enemy_spawns = []
+        
+        print("地图已清空")
+    
     def handle_window_resized(self, width, height):
-        """处理窗口大小改变"""
-        # 地图编辑器应保持固定的游戏区域高度
-        current_game_height = self.GAME_HEIGHT
-        current_toolbar_height = self.TOOLBAR_HEIGHT
-        current_total_height = current_game_height + current_toolbar_height
+        """处理窗口大小改变，保持固定的网格行列数"""
+        # 保持固定的网格尺寸和行列数
+        # 使用与游戏世界一致的固定尺寸
+        self.MAP_WIDTH = self.DEFAULT_MAP_WIDTH
+        self.GAME_HEIGHT = self.DEFAULT_GAME_HEIGHT
+        self.MAP_HEIGHT = self.GAME_HEIGHT + self.TOOLBAR_HEIGHT
         
-        # 如果窗口高度不够，尝试调整工具栏高度
-        if height < current_total_height:
-            # 计算最小需要的工具栏高度
-            min_toolbar_height = 60  # 最小工具栏高度
-            available_game_height = height - min_toolbar_height
-            
-            if available_game_height > 400:  # 确保有足够的游戏区域
-                self.TOOLBAR_HEIGHT = min_toolbar_height
-                self.GAME_HEIGHT = available_game_height
-            else:
-                # 如果高度太小，保持原始设置但缩放显示
-                self.GAME_HEIGHT = max(400, height * 0.7)
-                self.TOOLBAR_HEIGHT = max(60, height * 0.1)
-        else:
-            # 高度充足，保持原始设置
-            self.TOOLBAR_HEIGHT = 90
-            self.GAME_HEIGHT = 600
-        
-        # 重新计算网格参数
-        self.GRID_COLS = self.MAP_WIDTH // self.GRID_SIZE
-        self.GRID_ROWS = self.GAME_HEIGHT // self.GRID_SIZE
+        # 保持固定的网格参数
+        self.GRID_COLS = self.FIXED_GRID_COLS
+        self.GRID_ROWS = self.FIXED_GRID_ROWS
         
         # 调整布局
         self._update_layout()
         
         print(f"地图编辑器已响应窗口大小改变: {width}x{height}")
         print(f"游戏区域: {self.MAP_WIDTH}x{self.GAME_HEIGHT}, 工具栏: {self.TOOLBAR_HEIGHT}")
-        print(f"网格大小: {self.GRID_COLS}列 x {self.GRID_ROWS}行")
+        print(f"固定网格大小: {self.GRID_COLS}列 x {self.GRID_ROWS}行")
         
     def _update_layout(self):
         """更新布局以适应新的窗口大小"""
-        # 重新计算工具栏位置
-        surface_height = getattr(self, 'surface_height', 600)
-        surface_width = getattr(self, 'surface_width', 800)
-        
-        # 确保工具栏在底部
-        self.toolbar_y = surface_height - self.TOOLBAR_HEIGHT
-        self.toolbar_height = self.TOOLBAR_HEIGHT
-        
         # 重新创建工具栏按钮以适应新的窗口大小
         self._create_toolbar_buttons()
-
+    
     def render(self):
-        """渲染编辑器"""
+        """渲染编辑器 - 使用与游戏相同的坐标系统，将界面居中显示"""
         self.surface.fill((40, 40, 40))
         
-        # 移除 self.manager.update(0.016) - 由 ScreenManager 统一调用
+        # 获取窗口尺寸
+        window_width, window_height = self.surface.get_size()
+        map_width = self.MAP_WIDTH
+        map_height = self.GAME_HEIGHT
+        toolbar_height = self.TOOLBAR_HEIGHT
         
-        # 绘制地图画布（从y=90开始）
-        canvas_y_offset = 90
+        # 计算缩放比例，确保地图完整显示在屏幕上
+        available_width = window_width
+        available_height = window_height - toolbar_height
         
-        # 绘制网格 - 现在可以显示完整的600像素高度游戏区域
+        # 计算水平和垂直缩放比例
+        scale_x = available_width / map_width
+        scale_y = available_height / map_height
+        
+        # 使用较小的缩放比例，确保地图完整显示
+        scale_factor = min(scale_x, scale_y, 1.0)  # 不超过1.0倍缩放
+        
+        # 计算缩放后的地图尺寸
+        scaled_map_width = int(map_width * scale_factor)
+        scaled_map_height = int(map_height * scale_factor)
+        scaled_grid_size = int(self.GRID_SIZE * scale_factor)
+        
+        # 计算居中偏移
+        x_offset = (window_width - scaled_map_width) // 2
+        y_offset = (window_height - toolbar_height - scaled_map_height) // 2 + toolbar_height
+        
+        # 绘制网格
         for row in range(self.GRID_ROWS):
             for col in range(self.GRID_COLS):
-                x = col * self.GRID_SIZE
-                y = row * self.GRID_SIZE + canvas_y_offset
+                x = col * scaled_grid_size + x_offset
+                y = row * scaled_grid_size + y_offset
                 pygame.draw.rect(self.surface, (60, 60, 60), 
-                               (x, y, self.GRID_SIZE, self.GRID_SIZE), 1)
+                               (x, y, scaled_grid_size, scaled_grid_size), 1)
         
-        # 绘制墙体 - 渲染时将游戏坐标系转换为屏幕坐标系
+        # 绘制墙体 - 渲染时将游戏坐标系转换为屏幕坐标系并缩放
         for wall in self.walls:
-            # 游戏坐标系转换为屏幕坐标系，加上工具栏偏移
-            x = wall['x']
-            y = wall['y'] + canvas_y_offset
+            # 计算网格坐标
+            grid_x = wall['x'] // self.GRID_SIZE
+            grid_y = wall['y'] // self.GRID_SIZE
+            
+            # 转换为屏幕坐标并缩放
+            x = grid_x * scaled_grid_size + x_offset
+            y = grid_y * scaled_grid_size + y_offset
             wall_type = wall['type']
             
             # 获取墙体图片
             wall_img = resource_manager.get_wall_image(wall_type)
             if wall_img:
-                self.surface.blit(wall_img, (x, y))
+                # 缩放墙体图片以适应当前网格大小
+                scaled_wall_img = pygame.transform.scale(wall_img, (scaled_grid_size, scaled_grid_size))
+                self.surface.blit(scaled_wall_img, (x, y))
             else:
-                # 备用颜色
-                colors = {
-                    1: (139, 69, 19),   # 砖墙 - 棕色
-                    2: (128, 128, 128), # 钢墙 - 灰色
-                    3: (34, 139, 34),   # 草地 - 绿色
-                    4: (0, 191, 255),   # 河流 - 蓝色
-                    5: (255, 215, 0)    # 基地 - 金色
-                }
-                color = colors.get(wall_type, (255, 255, 255))
-                pygame.draw.rect(self.surface, color, (x, y, self.GRID_SIZE, self.GRID_SIZE))
+                # 备用：绘制彩色方块
+                color = (255, 128, 0)  # 默认砖块颜色
+                if wall_type == Wall.STEEL:
+                    color = (128, 128, 128)
+                elif wall_type == Wall.GRASS:
+                    color = (0, 255, 0)
+                elif wall_type == Wall.RIVER:
+                    color = (0, 0, 255)
+                elif wall_type == Wall.BASE:
+                    color = (255, 0, 0)
+                pygame.draw.rect(self.surface, color, 
+                               (x, y, scaled_grid_size, scaled_grid_size))
         
-        # 绘制出生点 - 渲染时将游戏坐标系转换为屏幕坐标系
-        # 玩家出生点 - 蓝色圆圈
+        # 绘制出生点
         for spawn in self.player_spawns:
-            player_x = spawn[0] + self.GRID_SIZE // 2
-            player_y = spawn[1] + self.GRID_SIZE // 2 + canvas_y_offset
-            pygame.draw.circle(self.surface, (0, 0, 255), (player_x, player_y), 15, 3)
+            # 计算网格坐标
+            grid_x = spawn[0] // self.GRID_SIZE
+            grid_y = spawn[1] // self.GRID_SIZE
+            
+            # 转换为屏幕坐标并缩放
+            x = grid_x * scaled_grid_size + x_offset
+            y = grid_y * scaled_grid_size + y_offset
+            
+            # 绘制玩家出生点（蓝色圆圈）
+            radius = scaled_grid_size // 3
+            pygame.draw.circle(self.surface, (0, 0, 255), 
+                              (x + scaled_grid_size//2, y + scaled_grid_size//2), 
+                              radius)
         
-        # 敌人出生点 - 红色圆圈
         for spawn in self.enemy_spawns:
-            enemy_x = spawn[0] + self.GRID_SIZE // 2
-            enemy_y = spawn[1] + self.GRID_SIZE // 2 + canvas_y_offset
-            pygame.draw.circle(self.surface, (255, 0, 0), (enemy_x, enemy_y), 15, 3)
+            # 计算网格坐标
+            grid_x = spawn[0] // self.GRID_SIZE
+            grid_y = spawn[1] // self.GRID_SIZE
+            
+            # 转换为屏幕坐标并缩放
+            x = grid_x * scaled_grid_size + x_offset
+            y = grid_y * scaled_grid_size + y_offset
+            
+            # 绘制敌人出生点（红色圆圈）
+            radius = scaled_grid_size // 3
+            pygame.draw.circle(self.surface, (255, 0, 0), 
+                              (x + scaled_grid_size//2, y + scaled_grid_size//2), 
+                              radius)
         
-        # 绘制当前工具提示
-        tool_names = {
-            self.TOOL_BRICK: "砖墙 (1)",
-            self.TOOL_STEEL: "钢墙 (2)",
-            self.TOOL_GRASS: "草地 (3)",
-            self.TOOL_RIVER: "河流 (4)",
-            self.TOOL_BASE: "基地 (5)",
-            self.TOOL_ERASER: "橡皮擦 (6)",
-            self.TOOL_PLAYER_SPAWN: "玩家出生点 (7)",
-            self.TOOL_ENEMY_SPAWN: "敌人出生点 (8)"
-        }
-        tool_text = f"当前工具: {tool_names.get(self.current_tool, '未知')}"
-        text_surf = self.small_font.render(tool_text, True, (255, 255, 255))
-        self.surface.blit(text_surf, (10, self.surface.get_height() - 30))
+        # 不再绘制工具提示和地图信息
         
-        # 绘制窗口信息提示
-        info_text = f"地图编辑器窗口大小: {self.surface.get_width()}x{self.surface.get_height()} - 可编辑完整游戏区域"
-        info_surf = self.small_font.render(info_text, True, (180, 180, 180))
-        self.surface.blit(info_surf, (10, self.surface.get_height() - 60))
-        
-        # 移除 self.manager.draw_ui(self.surface) - 由 ScreenManager 统一调用
+        # 绘制UI
+        self.manager.draw_ui(self.surface)

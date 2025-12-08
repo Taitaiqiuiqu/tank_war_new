@@ -732,12 +732,13 @@ class GameWorld:
                     enemy_has_lives = True
                     break
 
-        # 判断游戏胜负
-        if not player_has_lives:
+        # 判断游戏胜负 - 确保游戏不会在一开始就因为缺少活跃坦克而失败
+        # 只在有明确胜负条件时才判定
+        if not player_has_lives and (active_enemy_tanks or enemy_has_lives):
             # 玩家没有剩余生命，游戏失败
             self.game_over = True
             self.winner = "enemy"
-        elif not enemy_has_lives:
+        elif not enemy_has_lives and (active_player_tanks or player_has_lives):
             # 所有敌人被消灭，游戏胜利
             self.game_over = True
             self.winner = "player"

@@ -1,0 +1,181 @@
+{
+  "name": "new_map_tast",
+  "original_width": 1280,
+  "original_height": 720,
+  "aspect_ratio": 1.7777777777777777,
+  "grid_size": 50,
+  "wall_grid_data": [
+    {
+      "grid_x": 0,
+      "grid_y": 3,
+      "type": 3
+    },
+    {
+      "grid_x": 1,
+      "grid_y": 3,
+      "type": 3
+    },
+    {
+      "grid_x": 2,
+      "grid_y": 3,
+      "type": 3
+    },
+    {
+      "grid_x": 2,
+      "grid_y": 4,
+      "type": 3
+    },
+    {
+      "grid_x": 24,
+      "grid_y": 3,
+      "type": 4
+    },
+    {
+      "grid_x": 24,
+      "grid_y": 4,
+      "type": 4
+    },
+    {
+      "grid_x": 24,
+      "grid_y": 0,
+      "type": 4
+    },
+    {
+      "grid_x": 0,
+      "grid_y": 0,
+      "type": 4
+    },
+    {
+      "grid_x": 1,
+      "grid_y": 0,
+      "type": 4
+    },
+    {
+      "grid_x": 0,
+      "grid_y": 13,
+      "type": 4
+    },
+    {
+      "grid_x": 0,
+      "grid_y": 8,
+      "type": 4
+    },
+    {
+      "grid_x": 24,
+      "grid_y": 13,
+      "type": 4
+    },
+    {
+      "grid_x": 10,
+      "grid_y": 13,
+      "type": 4
+    }
+  ],
+  "player_spawns_grid": [
+    [
+      5,
+      13
+    ],
+    [
+      7,
+      13
+    ]
+  ],
+  "enemy_spawns_grid": [
+    [
+      2,
+      0
+    ],
+    [
+      9,
+      0
+    ]
+  ],
+  "walls": [
+    {
+      "x": 0,
+      "y": 150,
+      "type": 3
+    },
+    {
+      "x": 50,
+      "y": 150,
+      "type": 3
+    },
+    {
+      "x": 100,
+      "y": 150,
+      "type": 3
+    },
+    {
+      "x": 100,
+      "y": 200,
+      "type": 3
+    },
+    {
+      "x": 1200,
+      "y": 150,
+      "type": 4
+    },
+    {
+      "x": 1200,
+      "y": 200,
+      "type": 4
+    },
+    {
+      "x": 1200,
+      "y": 0,
+      "type": 4
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "type": 4
+    },
+    {
+      "x": 50,
+      "y": 0,
+      "type": 4
+    },
+    {
+      "x": 0,
+      "y": 650,
+      "type": 4
+    },
+    {
+      "x": 0,
+      "y": 400,
+      "type": 4
+    },
+    {
+      "x": 1200,
+      "y": 650,
+      "type": 4
+    },
+    {
+      "x": 500,
+      "y": 650,
+      "type": 4
+    }
+  ],
+  "player_spawns": [
+    [
+      250,
+      650
+    ],
+    [
+      350,
+      650
+    ]
+  ],
+  "enemy_spawns": [
+    [
+      100,
+      0
+    ],
+    [
+      450,
+      0
+    ]
+  ]
+}

@@ -335,30 +335,60 @@ class SinglePlayerSetupScreen(BaseScreen):
     def _load_available_maps(self):
         """加载可用地图列表"""
         available_maps = map_loader.get_available_maps()
-        if not available_maps:
-            available_maps = ["default"]
         
         # Create map display names with metadata and mapping
-        self.map_names = available_maps
+        self.map_names = []
         self.map_display_names = []
         # 添加映射字典，直接存储显示名称到地图名称的映射
         self.map_name_mapping = {}
         
-        for map_name in available_maps:
-            if map_name == "default":
-                display_name = "默认地图"
-            else:
-                # Try to get map details
-                map_data = map_loader.load_map(map_name)
-                if map_data and 'name' in map_data:
-                    # Add map stats to display name
-                    wall_count = len(map_data.get('walls', []))
-                    display_name = f"{map_data['name']} ({wall_count} 个障碍物)"
+        # 处理默认地图
+        self.map_names.append("default")
+        self.map_display_names.append("默认地图")
+        self.map_name_mapping["默认地图"] = "default"
+        
+        # 处理其他地图
+        for map_info in available_maps:
+            if isinstance(map_info, dict) and "filename" in map_info:
+                map_name = map_info["filename"]
+                self.map_names.append(map_name)
+                
+                try:
+                    # Try to get map details
+                    map_data = map_loader.load_map(map_name)
+                    if map_data and 'name' in map_data:
+                        # Add map stats to display name
+                        wall_count = len(map_data.get('walls', []))
+                        display_name = f"{map_data['name']} ({wall_count} 个障碍物)"
+                    else:
+                        display_name = map_info.get("name", map_name.replace(".json", ""))
+                except Exception as e:
+                    print(f"加载地图 {map_name} 时出错: {e}")
+                    display_name = map_info.get("name", map_name.replace(".json", ""))
+                
+                self.map_display_names.append(display_name)
+                self.map_name_mapping[display_name] = map_name
+            elif isinstance(map_info, str):
+                # 兼容旧格式
+                map_name = map_info
+                self.map_names.append(map_name)
+                
+                if map_name == "default":
+                    display_name = "默认地图"
                 else:
-                    display_name = map_name  # Fallback to map name
-            
-            self.map_display_names.append(display_name)
-            self.map_name_mapping[display_name] = map_name
+                    try:
+                        map_data = map_loader.load_map(map_name)
+                        if map_data and 'name' in map_data:
+                            wall_count = len(map_data.get('walls', []))
+                            display_name = f"{map_data['name']} ({wall_count} 个障碍物)"
+                        else:
+                            display_name = map_name
+                    except Exception as e:
+                        print(f"加载地图 {map_name} 时出错: {e}")
+                        display_name = map_name
+                
+                self.map_display_names.append(display_name)
+                self.map_name_mapping[display_name] = map_name
         
         # Ensure we have at least one option
         if not self.map_display_names:
@@ -521,50 +551,70 @@ class LobbyScreen(BaseScreen):
         super().on_enter()
         
         self.surface_width = self.surface.get_width()
+        self.surface_height = self.surface.get_height()
         
-        # 用户名输入
+        # 计算中心位置
+        center_x = self.surface_width // 2
+        
+        # 用户名输入 - 居中显示
+        label_width = 100
+        entry_width = 200
+        total_width = label_width + entry_width + 10  # 10像素间距
+        start_x = center_x - total_width // 2
+        
         UILabel(
-            relative_rect=pygame.Rect((50, 50), (100, 30)),
+            relative_rect=pygame.Rect((start_x, 50), (label_width, 30)),
             text="用户名:",
             manager=self.manager
         )
         self.username_entry = UITextEntryLine(
-            relative_rect=pygame.Rect((160, 50), (200, 30)),
+            relative_rect=pygame.Rect((start_x + label_width + 10, 50), (entry_width, 30)),
             manager=self.manager
         )
         self.username_entry.set_text("Player1")
         
-        # 房间列表
+        # 房间列表 - 居中显示
+        room_list_width = 500
+        room_list_height = 300
+        room_list_x = center_x - room_list_width // 2
+        
         UILabel(
-            relative_rect=pygame.Rect((50, 100), (200, 30)),
+            relative_rect=pygame.Rect((room_list_x, 100), (200, 30)),
             text="房间列表:",
             manager=self.manager
         )
         self.room_list = UISelectionList(
-            relative_rect=pygame.Rect((50, 140), (500, 300)),
+            relative_rect=pygame.Rect((room_list_x, 140), (room_list_width, room_list_height)),
             item_list=[], 
             manager=self.manager
         )
         
-        # 按钮
+        # 按钮 - 放在房间列表右侧，与房间列表顶部对齐
+        btn_width = 150
+        btn_height = 50
+        btn_spacing = 20
+        btn_start_x = room_list_x + room_list_width + 30
+        btn_start_y = 140
+        
         self.btn_create = UIButton(
-            relative_rect=pygame.Rect((600, 140), (150, 50)),
+            relative_rect=pygame.Rect((btn_start_x, btn_start_y), (btn_width, btn_height)),
             text='创建房间',
             manager=self.manager
         )
         
         self.btn_join = UIButton(
-            relative_rect=pygame.Rect((600, 210), (150, 50)),
+            relative_rect=pygame.Rect((btn_start_x, btn_start_y + btn_height + btn_spacing), (btn_width, btn_height)),
             text='加入房间',
             manager=self.manager
         )
         
         self.btn_refresh = UIButton(
-            relative_rect=pygame.Rect((600, 280), (150, 50)),
+            relative_rect=pygame.Rect((btn_start_x, btn_start_y + (btn_height + btn_spacing) * 2), (btn_width, btn_height)),
             text='刷新列表',
             manager=self.manager
         )
         
+        # 返回按钮 - 放在左下角，保持原位置
         self.btn_back = UIButton(
             relative_rect=pygame.Rect((50, 500), (100, 50)),
             text='返回',

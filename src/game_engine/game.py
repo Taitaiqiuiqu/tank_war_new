@@ -463,7 +463,7 @@ class GameEngine:
         # Try to load custom map or generate level map
         map_data = None
         if map_name != "default":
-            map_data = map_loader.load_map(map_name)
+            map_data = map_loader.load_map(map_name, config.GRID_SIZE)
             if map_data:
                 print(f"加载自定义地图: {map_data.get('name', map_name)}")
         else:
@@ -476,6 +476,14 @@ class GameEngine:
         
         if map_data:
             # Load from map file or generated map
+            # Calculate map offset to center the map in the game world
+            map_width = map_data.get('width', 800)
+            map_height = map_data.get('height', 600)
+            
+            # Calculate offset to center map in game world
+            offset_x = (self.game_world.width - map_width) // 2
+            offset_y = (self.game_world.height - map_height) // 2
+            
             # Spawn points - Single player mode only uses first player spawn
             player_spawns = map_data.get('player_spawns', [[400, 550]])
             enemy_spawns = map_data.get('enemy_spawns', [[400, 50]])
@@ -483,6 +491,10 @@ class GameEngine:
             # Single player: only use first player spawn point
             player_spawn = tuple(player_spawns[0]) if player_spawns else (400, 550)
             enemy_spawn = tuple(enemy_spawns[0]) if enemy_spawns else (400, 50)
+            
+            # Apply offset to spawn points
+            player_spawn = (player_spawn[0] + offset_x, player_spawn[1] + offset_y)
+            enemy_spawn = (enemy_spawn[0] + offset_x, enemy_spawn[1] + offset_y)
             
             self.game_world.register_spawn_points("player", [player_spawn])
             self.game_world.register_spawn_points("enemy", [enemy_spawn])
@@ -496,11 +508,11 @@ class GameEngine:
             self.game_world.spawn_tank("enemy", tank_id=enemy_id, position=enemy_spawn)
             self.enemy_controllers.append(EnemyAIController(enemy_id, self.game_world, difficulty=self.game_difficulty))
             
-            # Load walls
+            # Load walls with offset
             walls = map_data.get('walls', [])
             for wall in walls:
-                x = wall.get('x', 0)
-                y = wall.get('y', 0)
+                x = wall.get('x', 0) + offset_x
+                y = wall.get('y', 0) + offset_y
                 wall_type = wall.get('type', 0)
                 self.game_world.spawn_wall(x, y, wall_type)
         else:
@@ -582,7 +594,7 @@ class GameEngine:
             print(f"使用接收的地图数据: {map_data.get('name', map_name)}")
         # Priority 2: Load from local file
         elif map_name != "default":
-            map_data = map_loader.load_map(map_name)
+            map_data = map_loader.load_map(map_name, config.GRID_SIZE)
             if map_data:
                 print(f"加载联机地图: {map_data.get('name', map_name)}")
         
@@ -591,7 +603,19 @@ class GameEngine:
         p2_spawn = (self.screen_width // 2 + 100, self.screen_height - 100)
         enemy_spawn = (self.screen_width // 2 - 15, 50)
         
+        # Calculate map offset to center the map in the game world
+        offset_x = 0
+        offset_y = 0
+        
         if map_data:
+            # Calculate map dimensions from map data
+            map_width = map_data.get('width', 800)
+            map_height = map_data.get('height', 600)
+            
+            # Calculate offset to center map in game world
+            offset_x = (self.game_world.width - map_width) // 2
+            offset_y = (self.game_world.height - map_height) // 2
+            
             # Use map spawns if available
             # Multiplayer mode: use both player spawn points (P1 and P2)
             player_spawns = map_data.get('player_spawns', [])
@@ -606,6 +630,11 @@ class GameEngine:
             enemy_spawns = map_data.get('enemy_spawns', [])
             if enemy_spawns:
                 enemy_spawn = tuple(enemy_spawns[0])
+            
+            # Apply offset to spawn points
+            p1_spawn = (p1_spawn[0] + offset_x, p1_spawn[1] + offset_y)
+            p2_spawn = (p2_spawn[0] + offset_x, p2_spawn[1] + offset_y)
+            enemy_spawn = (enemy_spawn[0] + offset_x, enemy_spawn[1] + offset_y)
                 
         # Determine which tank is local player
         is_host = self.network_manager.stats.role == "host"
@@ -633,8 +662,8 @@ class GameEngine:
         if map_data:
             walls = map_data.get('walls', [])
             for wall in walls:
-                x = wall.get('x', 0)
-                y = wall.get('y', 0)
+                x = wall.get('x', 0) + offset_x
+                y = wall.get('y', 0) + offset_y
                 wall_type = wall.get('type', 0)
                 self.game_world.spawn_wall(x, y, wall_type)
         else:
