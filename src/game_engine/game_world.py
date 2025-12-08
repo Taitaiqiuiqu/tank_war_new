@@ -415,14 +415,15 @@ class GameWorld:
                 wall.render(screen)
 
         # 绘制地图边界线，区分地图和黑边
-        # 顶部边界：从(0, 0)到(self.width-1, 0)
-        pygame.draw.line(screen, (255, 255, 255), (0, 0), (self.width - 1, 0), 2)
-        # 底部边界：从(0, self.height-1)到(self.width-1, self.height-1)
-        pygame.draw.line(screen, (255, 255, 255), (0, self.height - 1), (self.width - 1, self.height - 1), 2)
-        # 左侧边界：从(0, 0)到(0, self.height-1)
-        pygame.draw.line(screen, (255, 255, 255), (0, 0), (0, self.height - 1), 2)
-        # 右侧边界：从(self.width-1, 0)到(self.width-1, self.height-1)
-        pygame.draw.line(screen, (255, 255, 255), (self.width - 1, 0), (self.width - 1, self.height - 1), 2)
+        # 将边界线向内移动1像素，确保在缩放时不会被裁剪
+        # 顶部边界：从(0, 1)到(self.width-1, 1)
+        pygame.draw.line(screen, (255, 255, 255), (0, 1), (self.width - 1, 1), 2)
+        # 底部边界：从(0, self.height-2)到(self.width-1, self.height-2)
+        pygame.draw.line(screen, (255, 255, 255), (0, self.height - 2), (self.width - 1, self.height - 2), 2)
+        # 左侧边界：从(1, 0)到(1, self.height-1)
+        pygame.draw.line(screen, (255, 255, 255), (1, 0), (1, self.height - 1), 2)
+        # 右侧边界：从(self.width-2, 0)到(self.width-2, self.height-1)
+        pygame.draw.line(screen, (255, 255, 255), (self.width - 2, 0), (self.width - 2, self.height - 1), 2)
 
         if self.debug_overlay:
             self._render_debug_overlay(screen)

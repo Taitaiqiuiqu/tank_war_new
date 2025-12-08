@@ -1327,3 +1327,97 @@ class LevelTankSelectScreen(BaseScreen):
             (self.surface.get_width() // 2 - 180, 30, 360, 400),
             border_radius=10
         )
+
+
+class SettingsScreen(BaseScreen):
+    """设置界面屏幕"""
+    
+    def on_enter(self):
+        super().on_enter()
+        
+        center_x = self.surface.get_width() // 2
+        center_y = self.surface.get_height() // 2
+        btn_width = 200
+        btn_height = 50
+        spacing = 20
+        
+        # 标题
+        UILabel(
+            relative_rect=pygame.Rect((center_x - 100, 50), (200, 30)),
+            text="游戏设置",
+            manager=self.manager,
+            object_id="@title"
+        )
+        
+        # 显示模式设置
+        UILabel(
+            relative_rect=pygame.Rect((center_x - 200, center_y - 100), (200, 30)),
+            text="显示模式",
+            manager=self.manager
+        )
+        
+        # 显示模式选项
+        self.display_mode_options = ["窗口显示", "全屏显示"]
+        self.display_mode_dropdown = UIDropDownMenu(
+            options_list=self.display_mode_options,
+            starting_option=self.display_mode_options[0],  # 默认窗口显示
+            relative_rect=pygame.Rect((center_x + 10, center_y - 100), (150, 30)),
+            manager=self.manager
+        )
+        
+        # 应用按钮
+        self.btn_apply = UIButton(
+            relative_rect=pygame.Rect((center_x - 200, center_y + 50), (150, 40)),
+            text="应用设置",
+            manager=self.manager
+        )
+        
+        # 返回按钮
+        self.btn_back = UIButton(
+            relative_rect=pygame.Rect((center_x + 50, center_y + 50), (150, 40)),
+            text="返回主菜单",
+            manager=self.manager
+        )
+        
+        # 当前显示模式状态
+        self.is_fullscreen = False
+        
+    def handle_event(self, event: pygame.event.Event):
+        super().handle_event(event)
+        
+        if event.type == pygame_gui.UI_BUTTON_PRESSED:
+            if event.ui_element == self.btn_apply:
+                # 应用显示模式设置
+                selected_mode = self.display_mode_dropdown.selected_option
+                self._apply_display_mode(selected_mode)
+            elif event.ui_element == self.btn_back:
+                # 返回主菜单
+                self.context.next_state = "menu"
+        
+    def _apply_display_mode(self, mode):
+        """应用显示模式设置"""
+        window_manager = self.get_window_manager()
+        if not window_manager:
+            print("无法获取WindowManager实例")
+            return
+        
+        if mode == "全屏显示" and not self.is_fullscreen:
+            # 切换到全屏模式
+            window_manager.toggle_fullscreen(True)
+            self.is_fullscreen = True
+            print("切换到全屏显示")
+        elif mode == "窗口显示" and self.is_fullscreen:
+            # 切换到窗口模式
+            window_manager.toggle_fullscreen(False)
+            self.is_fullscreen = False
+            print("切换到窗口显示")
+    
+    def render(self):
+        self.surface.fill((30, 30, 30))
+        # 绘制背景
+        pygame.draw.rect(
+            self.surface, 
+            (40, 40, 40), 
+            (self.surface.get_width() // 2 - 250, 30, 500, 300),
+            border_radius=10
+        )

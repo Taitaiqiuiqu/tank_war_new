@@ -72,9 +72,8 @@ class BaseScreen:
 
     def handle_event(self, event: pygame.event.Event):
         """处理输入事件（子类按需覆盖）。"""
-        # 默认将事件传递给 UI 管理器
         # 子类可以在此基础上添加自定义事件处理
-        self.ui_manager.handle_event(event)
+        pass
 
     def update(self, time_delta: float):
         """执行屏幕动画/状态更新。"""
@@ -87,7 +86,6 @@ class BaseScreen:
     def get_window_manager(self):
         """获取GameEngine的WindowManager实例"""
         # 通过ScreenManager获取WindowManager
-        # 这里假设ScreenManager会被设置到上下文中或通过其他方式可访问
         screen_manager = getattr(self.context, 'screen_manager', None)
         if screen_manager and hasattr(screen_manager, 'get_window_manager'):
             return screen_manager.get_window_manager()
@@ -156,13 +154,6 @@ class ScreenManager:
         # 更新UI管理器以适应新窗口大小
         self.ui_manager.set_resolution(width, height)
         
-        # 重新初始化当前屏幕以适应新窗口大小
-        current_screen = self._get_current_screen()
-        if current_screen:
-            # 保持当前状态不变，只刷新UI元素
-            current_screen.on_exit()
-            current_screen.on_enter()
-            
         print(f"ScreenManager已响应窗口大小改变: {width}x{height}")
 
     # ------------------------------------------------------------------ #
@@ -246,7 +237,8 @@ class ScreenManager:
             RoomScreen,
             LevelSelectScreen,
             LevelTankSelectScreen,
-            SingleModeSelectScreen
+            SingleModeSelectScreen,
+            SettingsScreen
         )
         from src.ui.map_editor_screen import MapEditorScreen
         
@@ -279,13 +271,11 @@ class ScreenManager:
         )
         self.register_screen(
             "settings",
-            TextScreen(
+            SettingsScreen(
                 self.surface,
                 self.context,
                 self.ui_manager,
-                title="设置",
-                description="即将支持自定义键位/音量",
-                network_manager=self.network_manager
+                self.network_manager
             ),
         )
         self.register_screen(

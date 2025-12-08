@@ -80,8 +80,11 @@ class WindowManager:
         try:
             self._is_resizing = True
             
-            # 设置新窗口大小
-            self.game_surface = pygame.display.set_mode((width, height))
+            # 获取当前窗口的显示标志
+            current_flags = pygame.display.get_surface().get_flags()
+            
+            # 设置新窗口大小，保留原始标志
+            self.game_surface = pygame.display.set_mode((width, height), current_flags)
             self.current_width, self.current_height = width, height
             
             # 调用回调函数通知窗口大小改变
@@ -163,3 +166,54 @@ class WindowManager:
     def __str__(self):
         """返回窗口管理器的字符串表示"""
         return f"WindowManager({self.current_width}x{self.current_height}, 原始: {self.original_width}x{self.original_height})"
+    
+    def toggle_fullscreen(self, enable_fullscreen: bool):
+        """
+        切换全屏模式
+        
+        Args:
+            enable_fullscreen: True表示切换到全屏，False表示切换到窗口模式
+        """
+        import pygame
+        
+        if enable_fullscreen:
+            # 保存当前窗口状态
+            self.windowed_width, self.windowed_height = self.current_width, self.current_height
+            
+            # 获取显示器分辨率
+            info = pygame.display.Info()
+            screen_width, screen_height = info.current_w, info.current_h
+            
+            # 切换到全屏模式
+            flags = pygame.FULLSCREEN | pygame.HWSURFACE
+            self.game_surface = pygame.display.set_mode((screen_width, screen_height), flags)
+            self.current_width, self.current_height = screen_width, screen_height
+            
+            print(f"已切换到全屏模式: {screen_width}x{screen_height}")
+        else:
+            # 恢复窗口模式
+            if hasattr(self, 'windowed_width') and hasattr(self, 'windowed_height'):
+                width, height = self.windowed_width, self.windowed_height
+            else:
+                width, height = self.original_width, self.original_height
+            
+            # 切换到窗口模式
+            flags = pygame.RESIZABLE
+            self.game_surface = pygame.display.set_mode((width, height), flags)
+            self.current_width, self.current_height = width, height
+            
+            print(f"已切换到窗口模式: {width}x{height}")
+        
+        # 通知所有注册的回调函数窗口大小已改变
+        self._notify_resize_callbacks(self.current_width, self.current_height)
+    
+    def is_fullscreen(self) -> bool:
+        """
+        检查当前是否为全屏模式
+        
+        Returns:
+            bool: True表示当前是全屏模式，False表示窗口模式
+        """
+        import pygame
+        flags = pygame.display.get_surface().get_flags()
+        return flags & pygame.FULLSCREEN != 0

@@ -1,5 +1,6 @@
 import random
 from typing import List, Optional
+import ctypes
 
 import pygame
 
@@ -212,8 +213,118 @@ class GameEngine:
 
     def __init__(self, enable_network: bool = False):
         """初始化游戏引擎"""
-        # 设置游戏窗口
-        self.screen = pygame.display.set_mode((config.DEFAULT_WINDOW_WIDTH, config.DEFAULT_WINDOW_HEIGHT))
+        # Enable DPI Awareness on Windows to prevent auto-scaling
+        # This fixes the issue where 2560x1440 window becomes larger than screen on scaled displays
+        try:
+            # Try to set ProcessDpiAwareness (Windows 8.1+)
+            # 0 = Unaware, 1 = System DPI Aware, 2 = Per Monitor DPI Aware
+            # We use System DPI Aware (1) to ensure the window size matches physical pixels
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+            print("DPI Awareness set to System DPI Aware (1)")
+        except Exception:
+            try:
+                # Fallback for Windows Vista/7/8
+                ctypes.windll.user32.SetProcessDPIAware()
+                print("DPI Awareness set via SetProcessDPIAware")
+            except Exception as e:
+                print(f"Failed to set DPI awareness: {e}")
+
+        # 获取显示器信息，设置合适的窗口大小
+        # 首先尝试使用pygame获取分辨率
+        info = pygame.display.Info()
+        pygame_width, pygame_height = info.current_w, info.current_h
+        
+        # 然后使用ctypes获取Windows显示器的实际物理分辨率（不受显示缩放影响）
+        try:
+            # 定义DEVMODE结构用于存储显示设置信息
+            class DEVMODE(ctypes.Structure):
+                _fields_ = [
+                    ('dmDeviceName', ctypes.c_wchar * 32),
+                    ('dmSpecVersion', ctypes.c_short),
+                    ('dmDriverVersion', ctypes.c_short),
+                    ('dmSize', ctypes.c_short),
+                    ('dmDriverExtra', ctypes.c_short),
+                    ('dmFields', ctypes.c_uint),
+                    ('dmOrientation', ctypes.c_short),
+                    ('dmPaperSize', ctypes.c_short),
+                    ('dmPaperLength', ctypes.c_short),
+                    ('dmPaperWidth', ctypes.c_short),
+                    ('dmScale', ctypes.c_short),
+                    ('dmCopies', ctypes.c_short),
+                    ('dmDefaultSource', ctypes.c_short),
+                    ('dmPrintQuality', ctypes.c_short),
+                    ('dmColor', ctypes.c_short),
+                    ('dmDuplex', ctypes.c_short),
+                    ('dmYResolution', ctypes.c_short),
+                    ('dmTTOption', ctypes.c_short),
+                    ('dmCollate', ctypes.c_short),
+                    ('dmFormName', ctypes.c_wchar * 32),
+                    ('dmLogPixels', ctypes.c_short),
+                    ('dmBitsPerPel', ctypes.c_short),
+                    ('dmPelsWidth', ctypes.c_uint),
+                    ('dmPelsHeight', ctypes.c_uint),
+                    ('dmDisplayFlags', ctypes.c_uint),
+                    ('dmDisplayFrequency', ctypes.c_uint),
+                    ('dmICMMethod', ctypes.c_uint),
+                    ('dmICMIntent', ctypes.c_uint),
+                    ('dmMediaType', ctypes.c_uint),
+                    ('dmDitherType', ctypes.c_uint),
+                    ('dmReserved1', ctypes.c_uint),
+                    ('dmReserved2', ctypes.c_uint),
+                    ('dmPanningWidth', ctypes.c_uint),
+                    ('dmPanningHeight', ctypes.c_uint),
+                ]
+            
+            user32 = ctypes.windll.user32
+            devmode = DEVMODE()
+            devmode.dmSize = ctypes.sizeof(DEVMODE)
+            
+            # 获取主显示器的默认显示设置
+            if user32.EnumDisplaySettingsW(None, -1, ctypes.byref(devmode)):
+                physical_width = devmode.dmPelsWidth
+                physical_height = devmode.dmPelsHeight
+                print(f"EnumDisplaySettings获取的实际物理分辨率: {physical_width}x{physical_height}")
+                
+                # 使用物理分辨率而不是pygame检测的缩放后分辨率
+                screen_width, screen_height = physical_width, physical_height
+                print(f"当前显示器分辨率: {screen_width}x{screen_height}")
+            else:
+                # 如果EnumDisplaySettings调用失败，尝试另一种方法
+                user32 = ctypes.windll.user32
+                # 获取屏幕的物理宽度和高度（像素）
+                physical_width = user32.GetSystemMetrics(0)  # SM_CXSCREEN
+                physical_height = user32.GetSystemMetrics(1)  # SM_CYSCREEN
+                print(f"GetSystemMetrics获取的分辨率: {physical_width}x{physical_height}")
+                
+                # 使用这个分辨率
+                screen_width, screen_height = physical_width, physical_height
+                print(f"当前显示器分辨率: {screen_width}x{screen_height}")
+        except Exception as e:
+            # 如果ctypes调用失败，回退到pygame获取的分辨率
+            screen_width, screen_height = pygame_width, pygame_height
+            print(f"使用pygame获取的分辨率: {screen_width}x{screen_height}")
+        
+        # 确保窗口大小不会超过显示器分辨率
+        # 同时保证窗口有合理的最小尺寸
+        min_width, min_height = config.MIN_WINDOW_WIDTH, config.MIN_WINDOW_HEIGHT
+        
+        # 如果显示器分辨率足够大，使用接近显示器分辨率的窗口大小
+        # 否则使用显示器分辨率作为窗口大小
+        if screen_width >= config.DEFAULT_WINDOW_WIDTH and screen_height >= config.DEFAULT_WINDOW_HEIGHT:
+            # 在高分辨率显示器上使用默认窗口大小
+            window_width, window_height = config.DEFAULT_WINDOW_WIDTH, config.DEFAULT_WINDOW_HEIGHT
+            print(f"使用默认窗口大小: {window_width}x{window_height}")
+        else:
+            # 在低分辨率显示器上使用显示器分辨率
+            window_width, window_height = screen_width, screen_height
+            print(f"使用显示器分辨率作为窗口大小: {window_width}x{window_height}")
+        
+        # 确保窗口大小不小于最小值
+        window_width = max(window_width, min_width)
+        window_height = max(window_height, min_height)
+        
+        # 设置游戏窗口 - 添加RESIZABLE标志
+        self.screen = pygame.display.set_mode((window_width, window_height), pygame.RESIZABLE)
         self.window_manager = WindowManager(self.screen)
         self.screen_width, self.screen_height = self.window_manager.get_size()
         pygame.display.set_caption("坦克大战 - 单机试玩")
@@ -251,6 +362,9 @@ class GameEngine:
         self.player_tank: Optional[Tank] = None
         self.enemy_controllers: List[EnemyAIController] = []
         self._movement_stack: List[int] = []
+        
+        # 全屏状态跟踪
+        self.is_fullscreen = False
         
         # AI难度锁定（游戏开始时设置，之后不变）
         self.game_difficulty: Optional[str] = None
@@ -553,6 +667,15 @@ class GameEngine:
     def handle_event(self, event):
         """处理游戏事件"""
         self.screen_manager.handle_event(event)
+        
+        # 处理窗口大小变化事件
+        if event.type == pygame.VIDEORESIZE:
+            width, height = event.size
+            # 限制最小窗口尺寸
+            width = max(width, config.MIN_WINDOW_WIDTH)
+            height = max(height, config.MIN_WINDOW_HEIGHT)
+            self.resize_window(width, height)
+            return
 
         if self.current_state != "game":
             return
@@ -804,14 +927,28 @@ class GameEngine:
             self.game_world.render(self.render_surface)
             
             # 5. 计算缩放比例和居中位置
-            # 以窗口高度为基准，计算游戏世界的缩放比例
-            scale_factor = self.screen_height / self.render_surface.get_height()
-            scaled_width = int(self.render_surface.get_width() * scale_factor)
-            scaled_height = int(self.render_surface.get_height() * scale_factor)
+            # 获取当前窗口的实际大小
+            current_width, current_height = pygame.display.get_surface().get_size()
             
-            # 计算居中位置（左右可能有黑边）
-            x_offset = (self.screen_width - scaled_width) // 2
-            y_offset = 0  # 上下没有黑边
+            # 计算游戏世界和窗口的宽高比
+            game_world_aspect = self.render_surface.get_width() / self.render_surface.get_height()
+            window_aspect = current_width / current_height
+            
+            # 根据宽高比决定缩放基准
+            if window_aspect >= game_world_aspect:
+                # 窗口更宽，以高度为基准缩放，保持游戏世界宽高比
+                scale_factor = current_height / self.render_surface.get_height()
+                scaled_width = int(self.render_surface.get_width() * scale_factor)
+                scaled_height = current_height
+            else:
+                # 窗口更窄，以宽度为基准缩放，保持游戏世界宽高比
+                scale_factor = current_width / self.render_surface.get_width()
+                scaled_width = current_width
+                scaled_height = int(self.render_surface.get_height() * scale_factor)
+            
+            # 计算居中位置
+            x_offset = (current_width - scaled_width) // 2
+            y_offset = (current_height - scaled_height) // 2
             
             # 6. 缩放并绘制游戏世界到主窗口
             scaled_surface = pygame.transform.scale(self.render_surface, (scaled_width, scaled_height))
