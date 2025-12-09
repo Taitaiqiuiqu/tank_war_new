@@ -103,13 +103,8 @@ class MapLoader:
             print(f"加载地图 {map_name} 时出错: {e}")
             return None
         
-        # 处理不同格式的地图数据
-        if 'wall_grid_data' in map_data:
-            # 新格式（使用网格坐标）
-            return self._load_new_format_map(map_data, target_grid_size)
-        else:
-            # 旧格式（使用绝对坐标）
-            return self._load_old_format_map(map_data, target_grid_size)
+        # 只支持新格式（使用网格坐标）
+        return self._load_new_format_map(map_data, target_grid_size)
     
     def _load_new_format_map(self, map_data, target_grid_size):
         """加载新格式地图（使用网格坐标）"""
@@ -123,29 +118,54 @@ class MapLoader:
         if original_height < 600:
             original_height = 600
         
+        # 墙体类型映射（字符串到数字）
+        wall_type_map = {
+            'background': 0,
+            'brick': 1,
+            'steel': 2,
+            'grass': 3,
+            'river': 4,
+            'base': 5,
+            # 大写版本支持
+            'BACKGROUND': 0,
+            'BRICK': 1,
+            'STEEL': 2,
+            'GRASS': 3,
+            'RIVER': 4,
+            'BASE': 5
+        }
+        
         # 转换墙体数据
         walls = []
+        bases = []  # 基地列表
         if 'wall_grid_data' in map_data:
             for wall_grid in map_data['wall_grid_data']:
                 # 直接使用目标网格大小转换为像素坐标
                 x = wall_grid['grid_x'] * target_grid_size
                 y = wall_grid['grid_y'] * target_grid_size
-                wall_type = wall_grid['type']
+                wall_type_str = wall_grid['type']
+                
+                # 检查墙体类型是否已经是数字类型
+                if isinstance(wall_type_str, (int, float)):
+                    wall_type = int(wall_type_str)
+                else:
+                    # 将字符串类型转换为数字类型
+                    wall_type = wall_type_map.get(wall_type_str, 1)  # 默认值为1（砖块）
                 
                 walls.append({
                     'x': x,
                     'y': y,
                     'type': wall_type
                 })
+                
+                # 如果是基地，单独记录
+                if wall_type == 5:  # 基地的数字类型是5
+                    bases.append([x, y])
         
         # 转换玩家出生点
         player_spawns = []
         
-        # 优先从player_spawns获取原始像素坐标
-        if 'player_spawns' in map_data and map_data['player_spawns']:
-            player_spawns = map_data['player_spawns']
-            print(f"[MapLoader] 从player_spawns获取玩家出生点: {player_spawns}")
-        elif 'player_spawns_grid' in map_data:
+        if 'player_spawns_grid' in map_data:
             for spawn_grid in map_data['player_spawns_grid']:
                 x = spawn_grid[0] * target_grid_size
                 y = spawn_grid[1] * target_grid_size
@@ -159,11 +179,7 @@ class MapLoader:
         # 转换敌人出生点
         enemy_spawns = []
         
-        # 优先从enemy_spawns获取原始像素坐标
-        if 'enemy_spawns' in map_data and map_data['enemy_spawns']:
-            enemy_spawns = map_data['enemy_spawns']
-            print(f"[MapLoader] 从enemy_spawns获取敌人出生点: {enemy_spawns}")
-        elif 'enemy_spawns_grid' in map_data:
+        if 'enemy_spawns_grid' in map_data:
             for spawn_grid in map_data['enemy_spawns_grid']:
                 x = spawn_grid[0] * target_grid_size
                 y = spawn_grid[1] * target_grid_size
@@ -173,6 +189,22 @@ class MapLoader:
             # 默认出生点
             enemy_spawns = [[400, 50]]
             print(f"[MapLoader] 使用默认敌人出生点: {enemy_spawns}")
+        
+        # 处理基地
+        if not bases and 'base_grid' in map_data:
+            # 如果有单独的基地网格数据
+            base_grid = map_data['base_grid']
+            base_x = base_grid[0] * target_grid_size
+            base_y = base_grid[1] * target_grid_size
+            bases.append([base_x, base_y])
+            # 将基地添加到墙体列表中
+            walls.append({
+                'x': base_x,
+                'y': base_y,
+                'type': 'base'
+            })
+        
+        print(f"[MapLoader] 找到基地数量: {len(bases)}")
         
         # 原始尺寸（从文件加载）
         map_width = original_width
@@ -205,14 +237,16 @@ class MapLoader:
             "walls": walls,
             "player_spawns": player_spawns,
             "enemy_spawns": enemy_spawns,
+            "bases": bases,
             "wall_grid_data": map_data.get("wall_grid_data", []),
             "player_spawns_grid": map_data.get("player_spawns_grid", []),
-            "enemy_spawns_grid": map_data.get("enemy_spawns_grid", [])
+            "enemy_spawns_grid": map_data.get("enemy_spawns_grid", []),
+            "base_grid": map_data.get("base_grid", [])
         }
         
         print(f"成功加载地图 {loaded_map['name']}")
         print(f"地图尺寸: {loaded_map['width']}x{loaded_map['height']}, 网格大小: {loaded_map['grid_size']}px")
-        print(f"墙体数量: {len(loaded_map['walls'])}, 玩家出生点: {len(loaded_map['player_spawns'])}, 敌人出生点: {len(loaded_map['enemy_spawns'])}")
+        print(f"墙体数量: {len(loaded_map['walls'])}, 玩家出生点: {len(loaded_map['player_spawns'])}, 敌人出生点: {len(loaded_map['enemy_spawns'])}, 基地数量: {len(loaded_map['bases'])}")
         
         return loaded_map
     
@@ -271,78 +305,6 @@ class MapLoader:
         
         default_map["walls"] = scaled_walls
         return default_map
-    
-    def _load_old_format_map(self, map_data, target_grid_size):
-        """加载旧格式地图（使用绝对坐标）"""
-        # 获取原始地图信息
-        original_width = map_data.get("width", 800)
-        original_height = map_data.get("height", 600)
-        original_grid_size = map_data.get("grid_size", 20)
-        
-        # 计算缩放因子
-        scale_factor = target_grid_size / original_grid_size
-        
-        # 转换墙体数据
-        walls = []
-        for wall in map_data.get("walls", []):
-            # 转换为网格坐标，然后使用新的网格大小
-            grid_x = int(wall['x'] // original_grid_size)
-            grid_y = int(wall['y'] // original_grid_size)
-            
-            x = grid_x * target_grid_size
-            y = grid_y * target_grid_size
-            wall_type = wall['type']
-            
-            walls.append({
-                'x': x,
-                'y': y,
-                'type': wall_type
-            })
-        
-        # 转换玩家出生点
-        player_spawns = []
-        for spawn in map_data.get("player_spawns", []):
-            grid_x = int(spawn[0] // original_grid_size)
-            grid_y = int(spawn[1] // original_grid_size)
-            x = grid_x * target_grid_size
-            y = grid_y * target_grid_size
-            player_spawns.append([x, y])
-        
-        # 转换敌人出生点
-        enemy_spawns = []
-        for spawn in map_data.get("enemy_spawns", []):
-            grid_x = int(spawn[0] // original_grid_size)
-            grid_y = int(spawn[1] // original_grid_size)
-            x = grid_x * target_grid_size
-            y = grid_y * target_grid_size
-            enemy_spawns.append([x, y])
-        
-        # 计算地图尺寸（基于墙体和出生点的最大坐标）
-        max_x = max([wall['x'] for wall in walls] + [spawn[0] for spawn in player_spawns + enemy_spawns] + [0])
-        max_y = max([wall['y'] for wall in walls] + [spawn[1] for spawn in player_spawns + enemy_spawns] + [0])
-        
-        map_width = max_x + target_grid_size
-        map_height = max_y + target_grid_size
-        
-        # 创建最终的地图数据
-        loaded_map = {
-            "name": map_data.get("name", "unknown"),
-            "width": map_width,
-            "height": map_height,
-            "original_width": original_width,
-            "original_height": original_height,
-            "aspect_ratio": original_width / original_height,
-            "grid_size": target_grid_size,
-            "walls": walls,
-            "player_spawns": player_spawns,
-            "enemy_spawns": enemy_spawns
-        }
-        
-        print(f"成功加载旧格式地图 {loaded_map['name']}")
-        print(f"地图尺寸: {loaded_map['width']}x{loaded_map['height']}, 网格大小: {loaded_map['grid_size']}px")
-        print(f"墙体数量: {len(loaded_map['walls'])}, 玩家出生点: {len(loaded_map['player_spawns'])}, 敌人出生点: {len(loaded_map['enemy_spawns'])}")
-        
-        return loaded_map
     
     def get_map_display_name(self, filename):
         """获取地图的显示名称

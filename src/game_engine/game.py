@@ -22,36 +22,77 @@ class EnemyAIController:
 
     def __init__(self, tank_id: int, world: GameWorld, difficulty: str = "normal"):
         from src.game_engine.ai_config import get_difficulty_config
+        import random
         
         self.tank_id = tank_id
         self.world = world
         self.difficulty = difficulty
         self.config = get_difficulty_config(difficulty)
         
-        self.direction_timer = 0
-        self.shoot_timer = 0
+        # 初始化计时器为随机值，确保敌人立即开始移动
+        min_interval, max_interval = self.config["direction_interval"]
+        self.direction_timer = random.randint(min_interval, max_interval)
+        
+        min_interval, max_interval = self.config["shoot_interval"]
+        self.shoot_timer = random.randint(min_interval, max_interval)
+        
         self.role = None  # For Hell difficulty team coordination
+        self.turn_timer = 0  # 方向调转计时器
+        self.target_direction = None  # 目标方向
+
+    def _turn_to_direction(self, tank, target_direction):
+        """
+        将坦克调转至目标方向
+        
+        Args:
+            tank: 坦克实例
+            target_direction: 目标方向
+            
+        Returns:
+            bool: 是否已完成调转
+        """
+        if tank.direction == target_direction:
+            # 方向一致，无需调转
+            return True
+        
+        if self.turn_timer <= 0:
+            # 开始调转方向
+            self.target_direction = target_direction
+            self.turn_timer = 3  # 设置调转时间（3帧）
+            return False
+        else:
+            # 正在调转中
+            self.turn_timer -= 1
+            if self.turn_timer <= 0:
+                # 调转完成，保持方向与移动的一致性
+                return True
+            return False
 
     def update(self):
+        # 检查敌人是否被冻结
+        if self.world.freeze_enemies_timer > 0:
+            return
+        
         # 动态查找坦克实例 - 只控制敌人坦克
         tank = next((t for t in self.world.tanks if t.tank_id == self.tank_id and t.active and t.tank_type == "enemy"), None)
         if not tank:
             return
 
-        # Apply speed from config
-        tank.speed = self.config["speed"]
+        # 只在速度配置改变时应用速度（避免每次更新都重置）
+        if tank.speed != self.config["speed"]:
+            tank.speed = self.config["speed"]
 
         # Update timers
         self.direction_timer -= 1
         self.shoot_timer -= 1
         
-        # Movement logic based on difficulty
+        # Movement logic based on difficulty - 只在计时器到0时执行
         if self.direction_timer <= 0:
             self._update_movement(tank)
             min_interval, max_interval = self.config["direction_interval"]
             self.direction_timer = random.randint(min_interval, max_interval)
         
-        # Shooting logic
+        # Shooting logic - 只在计时器到0时执行
         if self.shoot_timer <= 0:
             self._update_shooting(tank)
             min_interval, max_interval = self.config["shoot_interval"]
@@ -66,35 +107,92 @@ class EnemyAIController:
     
     def _move_random(self, tank):
         """随机移动（简单难度）"""
-        tank.move(random.choice([Tank.UP, Tank.RIGHT, Tank.DOWN, Tank.LEFT]))
+        direction = random.choice([Tank.UP, Tank.RIGHT, Tank.DOWN, Tank.LEFT])
+        
+        # 先调转方向，再移动
+        if self._turn_to_direction(tank, direction):
+            tank.move(direction)        # move方法内部已设置方向
     
     def _move_with_tracking(self, tank):
         """带追踪的移动（普通+难度）"""
-        # Find nearest player
-        player = self._find_nearest_player(tank)
-        if not player:
-            self._move_random(tank)
-            return
+        # 1. 首先检查是否有玩家基地可以攻击
+        base = self._find_player_base()
+        target = None
+        target_is_base = False
+        
+        # 根据难度决定目标优先级
+        if base and self.difficulty in ["hard", "hell"]:
+            # 困难和地狱难度优先攻击基地
+            target = base
+            target_is_base = True
+        elif base and self.difficulty == "normal" and random.random() < 0.3:
+            # 普通难度有30%概率优先攻击基地
+            target = base
+            target_is_base = True
+        else:
+            # 其他情况优先攻击玩家坦克
+            target = self._find_nearest_player(tank)
+            if not target:
+                self._move_random(tank)
+                return
         
         # Calculate distance
-        dx = player.x - tank.x
-        dy = player.y - tank.y
+        dx = target.x - tank.x
+        dy = target.y - tank.y
         distance = (dx**2 + dy**2)**0.5
         
         # Check if should track based on probability
         tracking_prob = self.config.get("tracking_prob", 0.7)
-        if random.random() > tracking_prob:
+        if not target_is_base and random.random() > tracking_prob:
             self._move_random(tank)
             return
         
+        # 基地相关移动策略
+        if target_is_base:
+            # 如果距离基地较远，直接移动向基地
+            if distance > 200:
+                # Move towards base - 修复方向判断，增加稳定性
+                # 使用更稳定的方向选择逻辑，避免在边界处频繁切换
+                if abs(dx) > abs(dy) + 20:  # 增加20像素的缓冲，避免频繁切换
+                    # 基地在右边(dx>0)，向右移动；在左边(dx<0)，向左移动
+                    direction = Tank.RIGHT if dx > 0 else Tank.LEFT
+                elif abs(dy) > abs(dx) + 20:  # 增加20像素的缓冲
+                    # 基地在下边(dy>0)，向下移动；在上边(dy<0)，向上移动
+                    direction = Tank.DOWN if dy > 0 else Tank.UP
+                else:
+                    # 当dx和dy接近时，保持当前方向或选择更稳定的方向
+                    if tank.direction in [Tank.LEFT, Tank.RIGHT]:
+                        direction = Tank.RIGHT if dx > 0 else Tank.LEFT
+                    else:
+                        direction = Tank.DOWN if dy > 0 else Tank.UP
+                
+                # 先调转方向，再移动
+                if self._turn_to_direction(tank, direction):
+                    tank.move(direction)        # move方法内部已设置方向
+            return
+        
+        # 玩家坦克相关移动策略
         # Safe distance logic (Hard+)
         safe_distance = self.config.get("safe_distance", 0)
         if safe_distance > 0 and distance < safe_distance:
-            # Move away from player
-            if abs(dx) > abs(dy):
-                tank.move(Tank.LEFT if dx > 0 else Tank.RIGHT)
+            # Move away from player - 修复方向判断，增加稳定性
+            # 使用更稳定的方向选择逻辑，避免在边界处频繁切换
+            if abs(dx) > abs(dy) + 20:  # 增加20像素的缓冲，避免频繁切换
+                # 玩家在右边(dx>0)，向左移动；玩家在左边(dx<0)，向右移动
+                direction = Tank.LEFT if dx > 0 else Tank.RIGHT
+            elif abs(dy) > abs(dx) + 20:  # 增加20像素的缓冲
+                # 玩家在下边(dy>0)，向上移动；玩家在上边(dy<0)，向下移动
+                direction = Tank.UP if dy > 0 else Tank.DOWN
             else:
-                tank.move(Tank.UP if dy > 0 else Tank.DOWN)
+                # 当dx和dy接近时，保持当前方向或选择更稳定的方向
+                if tank.direction in [Tank.LEFT, Tank.RIGHT]:
+                    direction = Tank.LEFT if dx > 0 else Tank.RIGHT
+                else:
+                    direction = Tank.UP if dy > 0 else Tank.DOWN
+            
+            # 先调转方向，再移动
+            if self._turn_to_direction(tank, direction):
+                tank.move(direction)        # move方法内部已设置方向
             return
         
         # Dodge bullets (Normal+)
@@ -102,47 +200,284 @@ class EnemyAIController:
             self._dodge_bullet(tank)
             return
         
-        # Move towards player
-        if abs(dx) > abs(dy):
-            tank.move(Tank.RIGHT if dx > 0 else Tank.LEFT)
+        # Move towards player - 修复方向判断，增加稳定性
+        # 使用更稳定的方向选择逻辑，避免在边界处频繁切换
+        if abs(dx) > abs(dy) + 20:  # 增加20像素的缓冲，避免频繁切换
+            # 玩家在右边(dx>0)，向右移动；玩家在左边(dx<0)，向左移动
+            direction = Tank.RIGHT if dx > 0 else Tank.LEFT
+        elif abs(dy) > abs(dx) + 20:  # 增加20像素的缓冲
+            # 玩家在下边(dy>0)，向下移动；玩家在上边(dy<0)，向上移动
+            direction = Tank.DOWN if dy > 0 else Tank.UP
         else:
-            tank.move(Tank.DOWN if dy > 0 else Tank.UP)
+            # 当dx和dy接近时，保持当前方向或选择更稳定的方向
+            if tank.direction in [Tank.LEFT, Tank.RIGHT]:
+                direction = Tank.RIGHT if dx > 0 else Tank.LEFT
+            else:
+                direction = Tank.DOWN if dy > 0 else Tank.UP
+        
+        # 先调转方向，再移动
+        if self._turn_to_direction(tank, direction):
+            tank.move(direction)        # move方法内部已设置方向
     
     def _update_shooting(self, tank):
         """更新射击逻辑"""
         if self.config.get("prediction"):
             self._shoot_with_prediction(tank)
         else:
-            self.world.spawn_bullet(tank)
+            # 不使用预判时，优先考虑基地作为目标
+            target = self._select_target_player(tank)
+            if target:
+                # 检查目标是否在射击范围内
+                if self.difficulty in ["easy"] or self._is_target_in_firing_arc(tank, target):
+                    self.world.spawn_bullet(tank)
     
     def _shoot_with_prediction(self, tank):
         """带预判的射击"""
-        player = self._find_nearest_player(tank)
-        if not player:
+        # 使用新的目标选择系统（可能返回玩家坦克或基地）
+        target = self._select_target_player(tank)
+        if not target:
             self.world.spawn_bullet(tank)
             return
         
-        # Calculate predicted position
-        prediction_frames = self.config.get("prediction_frames", 10)
-        pred_x = player.x + player.velocity_x * prediction_frames
-        pred_y = player.y + player.velocity_y * prediction_frames
+        # 检查目标类型
+        is_base = hasattr(target, "wall_type") and target.wall_type == Wall.BASE
         
-        # Determine best shooting direction
+        # 根据目标类型和难度调整预判策略
+        if is_base:
+            # 基地是静止目标，不需要预判，直接瞄准
+            pred_x = target.x
+            pred_y = target.y
+        else:
+            # 玩家坦克是移动目标，需要预判
+            if self.difficulty == "easy":
+                # 简单难度使用基本预判
+                prediction_frames = self.config.get("prediction_frames", 5)
+                pred_x = target.x + target.velocity_x * prediction_frames
+                pred_y = target.y + target.velocity_y * prediction_frames
+            elif self.difficulty == "normal":
+                # 普通难度考虑移动方向
+                prediction_frames = self.config.get("prediction_frames", 10)
+                pred_x = target.x + target.velocity_x * prediction_frames
+                pred_y = target.y + target.velocity_y * prediction_frames
+            else:
+                # 困难和地狱难度使用高级预判
+                # 计算子弹飞行时间（基于距离和子弹速度）
+                dx = target.x - tank.x
+                dy = target.y - tank.y
+                distance = (dx**2 + dy**2)**0.5
+                
+                # 子弹速度（假设为固定值，可从config获取）
+                bullet_speed = getattr(config, "BULLET_SPEED", 6)
+                flight_time_frames = max(5, int(distance / bullet_speed))  # 至少5帧
+                
+                # 基础预判：考虑当前速度
+                pred_x = target.x + target.velocity_x * flight_time_frames
+                pred_y = target.y + target.velocity_y * flight_time_frames
+                
+                # 高级预判：考虑加速度和移动趋势
+                if self.difficulty == "hell":
+                    # 尝试预测玩家可能的移动方向变化
+                    # 检查玩家是否在直线移动
+                    if abs(target.velocity_x) > abs(target.velocity_y):
+                        # 水平移动，可能继续水平方向
+                        pred_x += target.velocity_x * 2  # 增加额外预判
+                    else:
+                        # 垂直移动，可能继续垂直方向
+                        pred_y += target.velocity_y * 2  # 增加额外预判
+        
+        # Determine best shooting direction - 修复预判方向，增加稳定性
         dx = pred_x - tank.x
         dy = pred_y - tank.y
         
-        # Choose direction closest to predicted position
-        if abs(dx) > abs(dy):
+        # Choose direction closest to predicted position with stability
+        if abs(dx) > abs(dy) + 20:  # 增加20像素的缓冲，避免频繁切换
+            # 预测位置在右边(dx>0)，向右射击；在左边(dx<0)，向左射击
             target_dir = Tank.RIGHT if dx > 0 else Tank.LEFT
-        else:
+        elif abs(dy) > abs(dx) + 20:  # 增加20像素的缓冲
+            # 预测位置在下边(dy>0)，向下射击；在上边(dy<0)，向上射击
             target_dir = Tank.DOWN if dy > 0 else Tank.UP
+        else:
+            # 当dx和dy接近时，优先保持当前射击方向
+            if tank.direction in [Tank.LEFT, Tank.RIGHT, Tank.UP, Tank.DOWN]:
+                target_dir = tank.direction  # 保持当前方向
+            else:
+                # 默认选择水平方向
+                target_dir = Tank.RIGHT if dx > 0 else Tank.LEFT
         
-        # Aim and shoot
-        tank.direction = target_dir
-        self.world.spawn_bullet(tank)
+        # 先调转方向，再射击
+        if self._turn_to_direction(tank, target_dir):
+            # 检查射击路径是否清晰（仅在困难和地狱难度使用）
+            if self.difficulty in ["easy", "normal"] or self._is_shooting_path_clear(tank, target):
+                # Aim and shoot - 确保坦克方向和射击方向一致
+                self.world.spawn_bullet(tank)
+    
+    def _is_shooting_path_clear(self, tank, target):
+        """
+        检查射击路径是否被障碍物阻挡且目标在有效射击范围内
+        
+        Args:
+            tank: 射击的坦克
+            target: 目标玩家
+            
+        Returns:
+            bool: 路径是否清晰且目标在有效射击范围内
+        """
+        # 1. 首先检查目标是否在坦克的有效射击角度内（避免死角射击）
+        if not self._is_target_in_firing_arc(tank, target):
+            return False
+        
+        # 2. 检查直线上是否有墙体
+        # 获取所有可阻挡子弹的墙体
+        obstacles = [wall for wall in self.world.walls if wall.active and not wall.shoot_through]
+        
+        # 获取坦克和目标的中心位置
+        tank_center = (tank.x + tank.width // 2, tank.y + tank.height // 2)
+        target_center = (target.x + target.width // 2, target.y + target.height // 2)
+        
+        # 3. 检查是否有障碍物在射击路径上
+        for obstacle in obstacles:
+            # 检查障碍物矩形是否与射击线段相交
+            if self._line_rect_intersection(tank_center, target_center, obstacle.rect):
+                return False
+        
+        # 4. 检查其他坦克是否阻挡了射击路径
+        for other_tank in self.world.tanks:
+            if other_tank is tank or other_tank is target or not other_tank.active:
+                continue
+            
+            if self._line_rect_intersection(tank_center, target_center, other_tank.rect):
+                return False
+        
+        return True
+        
+    def _is_target_in_firing_arc(self, tank, target):
+        """
+        检查目标是否在坦克的有效射击角度内（避免射击死角）
+        
+        Args:
+            tank: 射击的坦克
+            target: 目标（可以是坦克或基地）
+            
+        Returns:
+            bool: 目标是否在有效射击范围内
+        """
+        # 获取坦克和目标的中心位置
+        tank_center = (tank.x + tank.width // 2, tank.y + tank.height // 2)
+        target_center = (target.x + target.width // 2, target.y + target.height // 2)
+        
+        # 计算目标相对于坦克的方向向量
+        dx = target_center[0] - tank_center[0]
+        dy = target_center[1] - tank_center[1]
+        
+        # 根据难度调整射击精度阈值
+        if self.difficulty in ["easy", "normal"]:
+            # 简单和普通难度：较宽松的射击角度
+            threshold = tank.width  # 左右/上下偏差不超过坦克宽度
+        else:
+            # 困难和地狱难度：更精确的射击角度
+            threshold = tank.width * 0.7  # 偏差不超过坦克宽度的70%
+        
+        # 根据坦克当前朝向检查目标是否在正前方
+        if tank.direction == Tank.UP:
+            # 向上射击：目标应该在坦克上方，且左右偏差不超过阈值
+            return dy < 0 and abs(dx) < threshold
+        elif tank.direction == Tank.DOWN:
+            # 向下射击：目标应该在坦克下方，且左右偏差不超过阈值
+            return dy > 0 and abs(dx) < threshold
+        elif tank.direction == Tank.LEFT:
+            # 向左射击：目标应该在坦克左侧，且上下偏差不超过阈值
+            return dx < 0 and abs(dy) < threshold
+        elif tank.direction == Tank.RIGHT:
+            # 向右射击：目标应该在坦克右侧，且上下偏差不超过阈值
+            return dx > 0 and abs(dy) < threshold
+        
+        return False
+        
+    def _line_rect_intersection(self, p1, p2, rect):
+        """
+        检查线段p1-p2是否与矩形rect相交
+        
+        Args:
+            p1: 线段起点(x, y)
+            p2: 线段终点(x, y)
+            rect: pygame.Rect对象
+            
+        Returns:
+            bool: 是否相交
+        """
+        # 矩形的四条边
+        rect_edges = [
+            ((rect.left, rect.top), (rect.right, rect.top)),  # 上边
+            ((rect.right, rect.top), (rect.right, rect.bottom)),  # 右边
+            ((rect.right, rect.bottom), (rect.left, rect.bottom)),  # 下边
+            ((rect.left, rect.bottom), (rect.left, rect.top))  # 左边
+        ]
+        
+        # 检查线段是否与矩形的任何一条边相交
+        for edge_p1, edge_p2 in rect_edges:
+            if self._line_intersection(p1, p2, edge_p1, edge_p2):
+                return True
+        
+        # 检查线段是否完全在矩形内部
+        if rect.collidepoint(p1) and rect.collidepoint(p2):
+            return True
+        
+        return False
+        
+    def _line_intersection(self, p1, p2, p3, p4):
+        """
+        检查线段p1-p2和线段p3-p4是否相交
+        使用向量叉积法
+        
+        Args:
+            p1, p2: 第一条线段的端点
+            p3, p4: 第二条线段的端点
+            
+        Returns:
+            bool: 是否相交
+        """
+        # 计算叉积
+        def cross(o, a, b):
+            return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+        
+        # 计算各个点的叉积
+        d1 = cross(p3, p4, p1)
+        d2 = cross(p3, p4, p2)
+        d3 = cross(p1, p2, p3)
+        d4 = cross(p1, p2, p4)
+        
+        # 线段相交的条件
+        if ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0)) and ((d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0)):
+            return True
+        
+        # 检查端点是否在另一条线段上
+        if d1 == 0 and self._is_point_on_segment(p3, p4, p1):
+            return True
+        if d2 == 0 and self._is_point_on_segment(p3, p4, p2):
+            return True
+        if d3 == 0 and self._is_point_on_segment(p1, p2, p3):
+            return True
+        if d4 == 0 and self._is_point_on_segment(p1, p2, p4):
+            return True
+        
+        return False
+        
+    def _is_point_on_segment(self, p1, p2, p):
+        """
+        检查点p是否在线段p1-p2上
+        
+        Args:
+            p1, p2: 线段端点
+            p: 要检查的点
+            
+        Returns:
+            bool: 是否在线段上
+        """
+        return (min(p1[0], p2[0]) <= p[0] <= max(p1[0], p2[0]) and
+                min(p1[1], p2[1]) <= p[1] <= max(p1[1], p2[1]))
     
     def _find_nearest_player(self, tank):
-        """查找最近的玩家"""
+        """查找最近的玩家（兼容旧代码）"""
         players = [t for t in self.world.tanks if t.active and t.tank_type == "player"]
         if not players:
             return None
@@ -155,6 +490,113 @@ class EnemyAIController:
                 min_dist = dist
                 nearest = player
         return nearest
+        
+    def _find_player_base(self):
+        """查找玩家基地（唯一的BASE类型墙体）"""
+        bases = [wall for wall in self.world.walls if wall.active and wall.wall_type == Wall.BASE]
+        return bases[0] if bases else None
+
+    def _select_target_player(self, tank):
+        """选择最优目标，基于多种因素
+        
+        优先级因素（从高到低）：
+        1. 玩家基地（最高优先级目标）
+        2. 玩家坦克
+            - 距离（基础因素）
+            - 玩家是否正在射击（高优先级）
+            - 玩家是否有护盾（低优先级）
+            - 玩家剩余生命值（低生命值优先）
+            - 玩家是否静止（静止目标更容易命中）
+        """
+        # 1. 首先检查是否有玩家基地可以攻击
+        base = self._find_player_base()
+        if base:
+            # 计算到基地的距离
+            dx = base.x - tank.x
+            dy = base.y - tank.y
+            base_dist = (dx**2 + dy**2)**0.5
+            
+            # 根据难度决定是否优先攻击基地
+            if self.difficulty in ["hard", "hell"]:
+                # 困难和地狱难度优先攻击基地
+                # 检查是否可以直接射击基地
+                if self._is_shooting_path_clear(tank, base):
+                    return base
+            elif self.difficulty == "normal":
+                # 普通难度：如果基地距离较近且可以直接射击，则优先攻击
+                if base_dist < 300 and self._is_shooting_path_clear(tank, base):
+                    return base
+        
+        # 2. 如果没有合适的基地目标，则选择玩家坦克
+        players = [t for t in self.world.tanks if t.active and t.tank_type == "player"]
+        if not players:
+            # 如果没有玩家坦克，返回基地作为目标
+            return base
+            
+        # 根据难度决定是否使用高级目标选择
+        if self.difficulty in ["easy", "normal"]:
+            # 简单和普通难度使用距离优先
+            return self._find_nearest_player(tank)
+        
+        # 计算每个玩家的综合评分
+        best_score = -float('inf')
+        best_player = None
+        
+        for player in players:
+            # 计算距离
+            dx = player.x - tank.x
+            dy = player.y - tank.y
+            dist = (dx**2 + dy**2)**0.5
+            
+            # 基础分数（距离越近分数越高）
+            score = 1000 / (dist + 1)
+            
+            # 正在射击的玩家（高优先级）
+            if player.shoot_cooldown > 0 and player.shoot_cooldown < player.max_shoot_cooldown:
+                score += 200
+            
+            # 没有护盾的玩家（优先攻击）
+            if not player.shield_active:
+                score += 150
+            
+            # 生命值低的玩家（优先攻击）
+            health_factor = (100 - player.health) / 100
+            score += health_factor * 100
+            
+            # 静止的玩家（更容易命中）
+            if player.velocity_x == 0 and player.velocity_y == 0:
+                score += 50
+            
+            # 根据难度调整权重
+            if self.difficulty == "hell":
+                score *= 1.2  # 地狱难度目标选择更激进
+            
+            if score > best_score:
+                best_score = score
+                best_player = player
+        
+        # 3. 比较攻击玩家和攻击基地的优先级
+        if base and best_player:
+            # 计算攻击玩家的分数
+            player_dx = best_player.x - tank.x
+            player_dy = best_player.y - tank.y
+            player_dist = (player_dx**2 + player_dy**2)**0.5
+            player_score = 1000 / (player_dist + 1)
+            
+            # 计算攻击基地的分数（基地具有更高的基础分数）
+            base_score = 1500 / (base_dist + 1)  # 基地基础分数更高
+            
+            # 根据难度调整基地优先级权重
+            if self.difficulty == "hell":
+                base_score *= 1.5  # 地狱难度下基地优先级更高
+            elif self.difficulty == "hard":
+                base_score *= 1.2  # 困难难度下基地优先级较高
+            
+            # 选择分数更高的目标
+            if base_score > player_score:
+                return base
+        
+        return best_player
     
     def _should_dodge(self, tank):
         """检查是否应该躲避子弹"""
@@ -196,11 +638,26 @@ class EnemyAIController:
             if not bullet.active or bullet.owner == tank:
                 continue
             if self._bullet_will_hit(bullet, tank):
-                # Move perpendicular to bullet direction
-                if bullet.direction in [Tank.UP, Tank.DOWN]:
-                    tank.move(random.choice([Tank.LEFT, Tank.RIGHT]))
+                # Move perpendicular to bullet direction - 修复躲避逻辑，增加稳定性
+                # 优先选择与当前坦克方向垂直的方向，避免频繁切换
+                if bullet.direction == Tank.UP or bullet.direction == Tank.DOWN:
+                    # 子弹从上往下或从下往上，向左右躲避
+                    # 优先选择与当前方向一致的水平方向
+                    if tank.direction in [Tank.LEFT, Tank.RIGHT]:
+                        dodge_dir = tank.direction  # 保持当前水平方向
+                    else:
+                        dodge_dir = Tank.LEFT if random.random() < 0.5 else Tank.RIGHT
                 else:
-                    tank.move(random.choice([Tank.UP, Tank.DOWN]))
+                    # 子弹从左往右或从右往左，向上下躲避
+                    # 优先选择与当前方向一致的垂直方向
+                    if tank.direction in [Tank.UP, Tank.DOWN]:
+                        dodge_dir = tank.direction  # 保持当前垂直方向
+                    else:
+                        dodge_dir = Tank.UP if random.random() < 0.5 else Tank.DOWN
+                
+                # 先调转方向，再移动
+                if self._turn_to_direction(tank, dodge_dir):
+                    tank.move(dodge_dir)        # move方法内部已设置方向
                 return
         
         # Fallback to random
@@ -889,7 +1346,11 @@ class GameEngine:
             # Single Player
             # 只有在游戏未结束时才更新游戏世界
             if self.current_state == "game" and not self.game_world.game_over:
-                self._update_enemy_ai()
+                # 统一移动调用时机：先更新所有坦克的移动状态
+                self._apply_player_direction()  # 玩家坦克移动
+                self._update_enemy_ai()          # 敌人坦克移动
+                
+                # 然后更新游戏世界（处理物理和碰撞）
                 self.game_world.update()
                 
                 # 检查游戏是否结束
@@ -1149,12 +1610,12 @@ class GameEngine:
         if direction in self._movement_stack:
             self._movement_stack.remove(direction)
         self._movement_stack.append(direction)
-        self._apply_player_direction()
+        # 移除立即调用，改为在游戏更新时统一调用
 
     def _release_direction(self, direction: int):
         if direction in self._movement_stack:
             self._movement_stack.remove(direction)
-        self._apply_player_direction()
+        # 移除立即调用，改为在游戏更新时统一调用
 
     def _apply_player_direction(self):
         # Client-Side Prediction: Both client and host move local player immediately

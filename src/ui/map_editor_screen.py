@@ -413,10 +413,7 @@ class MapEditorScreen(BaseScreen):
             "grid_size": grid_size,
             "wall_grid_data": wall_grid_data,  # 使用网格坐标
             "player_spawns_grid": player_spawns_grid,
-            "enemy_spawns_grid": enemy_spawns_grid,
-            "walls": self.walls,  # 保留原始绝对坐标以便向后兼容
-            "player_spawns": self.player_spawns,
-            "enemy_spawns": self.enemy_spawns
+            "enemy_spawns_grid": enemy_spawns_grid
         }
         
         # 确保maps目录存在
@@ -448,48 +445,35 @@ class MapEditorScreen(BaseScreen):
             with open(filename, 'r', encoding='utf-8') as f:
                 map_data = json.load(f)
             
-            # 检查是否有网格数据（新格式）
-            if 'wall_grid_data' in map_data:
-                # 使用网格坐标数据加载，并根据当前尺寸进行调整
-                grid_size = map_data.get('grid_size', self.GRID_SIZE)
+            # 使用网格坐标数据加载
+            grid_size = map_data.get('grid_size', self.GRID_SIZE)
+            
+            # 加载墙体数据
+            self.walls = []
+            for wall_grid in map_data['wall_grid_data']:
+                # 直接使用游戏网格大小转换为像素坐标
+                game_x = wall_grid['grid_x'] * self.GRID_SIZE
+                game_y = wall_grid['grid_y'] * self.GRID_SIZE
                 
-                # 加载墙体数据
-                self.walls = []
-                for wall_grid in map_data['wall_grid_data']:
-                    # 直接使用游戏网格大小转换为像素坐标
-                    game_x = wall_grid['grid_x'] * self.GRID_SIZE
-                    game_y = wall_grid['grid_y'] * self.GRID_SIZE
-                    
-                    self.walls.append({
-                        'x': game_x,
-                        'y': game_y,
-                        'type': wall_grid['type']
-                    })
-                
-                # 加载玩家出生点
-                self.player_spawns = []
-                for spawn_grid in map_data.get('player_spawns_grid', []):
-                    game_x = spawn_grid[0] * self.GRID_SIZE
-                    game_y = spawn_grid[1] * self.GRID_SIZE
-                    self.player_spawns.append([game_x, game_y])
-                
-                # 加载敌人出生点
-                self.enemy_spawns = []
-                for spawn_grid in map_data.get('enemy_spawns_grid', []):
-                    game_x = spawn_grid[0] * self.GRID_SIZE
-                    game_y = spawn_grid[1] * self.GRID_SIZE
-                    self.enemy_spawns.append([game_x, game_y])
-            else:
-                # 旧格式处理 - 兼容旧地图
-                self.walls = map_data.get('walls', [])
-                self.player_spawns = map_data.get('player_spawns', [])
-                self.enemy_spawns = map_data.get('enemy_spawns', [])
-                
-                # 确保出生点在地图范围内
-                self.player_spawns = [spawn for spawn in self.player_spawns 
-                                     if 0 <= spawn[0] < self.MAP_WIDTH and 0 <= spawn[1] < self.GAME_HEIGHT]
-                self.enemy_spawns = [spawn for spawn in self.enemy_spawns 
-                                    if 0 <= spawn[0] < self.MAP_WIDTH and 0 <= spawn[1] < self.GAME_HEIGHT]
+                self.walls.append({
+                    'x': game_x,
+                    'y': game_y,
+                    'type': wall_grid['type']
+                })
+            
+            # 加载玩家出生点
+            self.player_spawns = []
+            for spawn_grid in map_data.get('player_spawns_grid', []):
+                game_x = spawn_grid[0] * self.GRID_SIZE
+                game_y = spawn_grid[1] * self.GRID_SIZE
+                self.player_spawns.append([game_x, game_y])
+            
+            # 加载敌人出生点
+            self.enemy_spawns = []
+            for spawn_grid in map_data.get('enemy_spawns_grid', []):
+                game_x = spawn_grid[0] * self.GRID_SIZE
+                game_y = spawn_grid[1] * self.GRID_SIZE
+                self.enemy_spawns.append([game_x, game_y])
             
             # 确保有默认出生点
             if not self.player_spawns:

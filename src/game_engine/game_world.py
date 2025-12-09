@@ -567,6 +567,7 @@ class GameWorld:
         elif prop_type == 2: # 时钟 (时间静止)
             # 规定时间内敌方坦克静止不动
             self.freeze_enemies_timer = config.FREEZE_ENEMIES_DURATION # 10秒
+            print(f"[Clock] 冻结敌人计时器设置为 {self.freeze_enemies_timer} 帧")
             
         elif prop_type == 3: # 铁锹 (基地防御)
             # 基地周围红砖变钢墙，并修复

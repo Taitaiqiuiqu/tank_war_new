@@ -1,0 +1,153 @@
+{
+  "name": "防御地图",
+  "original_width": 1400,
+  "original_height": 1050,
+  "aspect_ratio": 1.3333333333333333,
+  "grid_size": 50,
+  "wall_grid_data": [
+    {
+      "grid_x": 13,
+      "grid_y": 20,
+      "type": 5
+    },
+    {
+      "grid_x": 12,
+      "grid_y": 20,
+      "type": 1
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 20,
+      "type": 1
+    },
+    {
+      "grid_x": 13,
+      "grid_y": 19,
+      "type": 1
+    },
+    {
+      "grid_x": 12,
+      "grid_y": 19,
+      "type": 1
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 19,
+      "type": 1
+    },
+    {
+      "grid_x": 0,
+      "grid_y": 17,
+      "type": 1
+    },
+    {
+      "grid_x": 2,
+      "grid_y": 17,
+      "type": 1
+    },
+    {
+      "grid_x": 4,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 6,
+      "grid_y": 17,
+      "type": 1
+    },
+    {
+      "grid_x": 8,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 10,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 16,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 18,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 20,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 22,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 24,
+      "grid_y": 17,
+      "type": 1
+    },
+    {
+      "grid_x": 26,
+      "grid_y": 17,
+      "type": 1
+    },
+    {
+      "grid_x": 2,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 25,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 2,
+      "grid_y": 18,
+      "type": 2
+    },
+    {
+      "grid_x": 25,
+      "grid_y": 18,
+      "type": 2
+    },
+    {
+      "grid_x": 2,
+      "grid_y": 19,
+      "type": 2
+    },
+    {
+      "grid_x": 25,
+      "grid_y": 19,
+      "type": 2
+    }
+  ],
+  "player_spawns_grid": [
+    [
+      11,
+      20
+    ],
+    [
+      15,
+      20
+    ]
+  ],
+  "enemy_spawns_grid": [
+    [
+      0,
+      0
+    ],
+    [
+      13,
+      0
+    ],
+    [
+      27,
+      0
+    ]
+  ]
+}

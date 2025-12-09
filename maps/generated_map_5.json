@@ -1,0 +1,343 @@
+{
+  "name": "堡垒地图",
+  "original_width": 1400,
+  "original_height": 1050,
+  "aspect_ratio": 1.3333333333333333,
+  "grid_size": 50,
+  "wall_grid_data": [
+    {
+      "grid_x": 13,
+      "grid_y": 20,
+      "type": 5
+    },
+    {
+      "grid_x": 12,
+      "grid_y": 20,
+      "type": 1
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 20,
+      "type": 1
+    },
+    {
+      "grid_x": 13,
+      "grid_y": 19,
+      "type": 1
+    },
+    {
+      "grid_x": 12,
+      "grid_y": 19,
+      "type": 1
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 19,
+      "type": 1
+    },
+    {
+      "grid_x": 11,
+      "grid_y": 14,
+      "type": 2
+    },
+    {
+      "grid_x": 11,
+      "grid_y": 15,
+      "type": 2
+    },
+    {
+      "grid_x": 11,
+      "grid_y": 16,
+      "type": 2
+    },
+    {
+      "grid_x": 11,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 11,
+      "grid_y": 18,
+      "type": 2
+    },
+    {
+      "grid_x": 12,
+      "grid_y": 14,
+      "type": 2
+    },
+    {
+      "grid_x": 12,
+      "grid_y": 15,
+      "type": 2
+    },
+    {
+      "grid_x": 12,
+      "grid_y": 16,
+      "type": 2
+    },
+    {
+      "grid_x": 12,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 12,
+      "grid_y": 18,
+      "type": 2
+    },
+    {
+      "grid_x": 13,
+      "grid_y": 14,
+      "type": 2
+    },
+    {
+      "grid_x": 13,
+      "grid_y": 15,
+      "type": 2
+    },
+    {
+      "grid_x": 13,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 13,
+      "grid_y": 18,
+      "type": 2
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 14,
+      "type": 2
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 15,
+      "type": 2
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 16,
+      "type": 2
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 18,
+      "type": 2
+    },
+    {
+      "grid_x": 15,
+      "grid_y": 14,
+      "type": 2
+    },
+    {
+      "grid_x": 15,
+      "grid_y": 15,
+      "type": 2
+    },
+    {
+      "grid_x": 15,
+      "grid_y": 16,
+      "type": 2
+    },
+    {
+      "grid_x": 15,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 15,
+      "grid_y": 18,
+      "type": 2
+    },
+    {
+      "grid_x": 1,
+      "grid_y": 1,
+      "type": 2
+    },
+    {
+      "grid_x": 1,
+      "grid_y": 2,
+      "type": 2
+    },
+    {
+      "grid_x": 1,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 2,
+      "grid_y": 1,
+      "type": 2
+    },
+    {
+      "grid_x": 2,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 3,
+      "grid_y": 1,
+      "type": 2
+    },
+    {
+      "grid_x": 3,
+      "grid_y": 2,
+      "type": 2
+    },
+    {
+      "grid_x": 3,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 24,
+      "grid_y": 1,
+      "type": 2
+    },
+    {
+      "grid_x": 24,
+      "grid_y": 2,
+      "type": 2
+    },
+    {
+      "grid_x": 24,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 25,
+      "grid_y": 1,
+      "type": 2
+    },
+    {
+      "grid_x": 25,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 26,
+      "grid_y": 1,
+      "type": 2
+    },
+    {
+      "grid_x": 26,
+      "grid_y": 2,
+      "type": 2
+    },
+    {
+      "grid_x": 26,
+      "grid_y": 3,
+      "type": 2
+    },
+    {
+      "grid_x": 1,
+      "grid_y": 16,
+      "type": 2
+    },
+    {
+      "grid_x": 1,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 1,
+      "grid_y": 18,
+      "type": 2
+    },
+    {
+      "grid_x": 2,
+      "grid_y": 16,
+      "type": 2
+    },
+    {
+      "grid_x": 2,
+      "grid_y": 18,
+      "type": 2
+    },
+    {
+      "grid_x": 3,
+      "grid_y": 16,
+      "type": 2
+    },
+    {
+      "grid_x": 3,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 3,
+      "grid_y": 18,
+      "type": 2
+    },
+    {
+      "grid_x": 24,
+      "grid_y": 16,
+      "type": 2
+    },
+    {
+      "grid_x": 24,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 24,
+      "grid_y": 18,
+      "type": 2
+    },
+    {
+      "grid_x": 25,
+      "grid_y": 16,
+      "type": 2
+    },
+    {
+      "grid_x": 25,
+      "grid_y": 18,
+      "type": 2
+    },
+    {
+      "grid_x": 26,
+      "grid_y": 16,
+      "type": 2
+    },
+    {
+      "grid_x": 26,
+      "grid_y": 17,
+      "type": 2
+    },
+    {
+      "grid_x": 26,
+      "grid_y": 18,
+      "type": 2
+    }
+  ],
+  "player_spawns_grid": [
+    [
+      11,
+      20
+    ],
+    [
+      15,
+      20
+    ]
+  ],
+  "enemy_spawns_grid": [
+    [
+      0,
+      0
+    ],
+    [
+      13,
+      0
+    ],
+    [
+      27,
+      0
+    ]
+  ]
+}

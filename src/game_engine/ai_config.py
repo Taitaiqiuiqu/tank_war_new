@@ -6,18 +6,18 @@
 DIFFICULTY_CONFIGS = {
     "easy": {
         "name": "简单",
-        "speed": 1.5,
-        "direction_interval": (60, 150),  # 帧
-        "shoot_interval": (120, 240),
+        "speed": 1.2,  # 降低速度，减少漂移
+        "direction_interval": (30, 40),  # 0.5-0.67秒决策间隔 (30-40帧)
+        "shoot_interval": (45, 60),     # 0.75-1秒射击间隔
         "tracking": False,
         "prediction": False,
         "dodge": False
     },
     "normal": {
         "name": "普通",
-        "speed": 2.0,
-        "direction_interval": (40, 100),
-        "shoot_interval": (80, 160),
+        "speed": 1.5,  # 降低速度
+        "direction_interval": (25, 35),  # 0.42-0.58秒决策间隔
+        "shoot_interval": (35, 50),     # 0.58-0.83秒射击间隔
         "tracking": True,
         "tracking_prob": 0.7,
         "prediction": True,
@@ -27,9 +27,9 @@ DIFFICULTY_CONFIGS = {
     },
     "hard": {
         "name": "困难",
-        "speed": 2.5,
-        "direction_interval": (30, 70),
-        "shoot_interval": (50, 100),
+        "speed": 1.8,  # 降低速度
+        "direction_interval": (20, 30),  # 0.33-0.5秒决策间隔
+        "shoot_interval": (25, 40),     # 0.42-0.67秒射击间隔
         "tracking": True,
         "tracking_prob": 0.9,
         "prediction": True,
@@ -40,9 +40,9 @@ DIFFICULTY_CONFIGS = {
     },
     "hell": {
         "name": "地狱",
-        "speed": 3.0,
-        "direction_interval": (20, 50),
-        "shoot_interval": (30, 60),
+        "speed": 2.0,  # 降低速度
+        "direction_interval": (15, 25),  # 0.25-0.42秒决策间隔
+        "shoot_interval": (20, 30),     # 0.33-0.5秒射击间隔
         "tracking": True,
         "tracking_prob": 1.0,
         "prediction": True,

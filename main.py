@@ -28,6 +28,9 @@ def main():
     # 创建游戏引擎实例
     game = GameEngine()
     
+    # 创建时钟对象用于帧率控制
+    clock = pygame.time.Clock()
+    
     # 游戏主循环
     running = True
     while running:
@@ -43,8 +46,8 @@ def main():
         # 渲染游戏画面
         game.render()
         
-        # 控制帧率
-        pygame.time.Clock().tick(60)
+        # 控制帧率（使用同一个Clock对象）
+        clock.tick(60)
     
     # 退出游戏
     pygame.quit()
