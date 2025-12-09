@@ -852,31 +852,36 @@ class RoomScreen(BaseScreen):
         """加载可用地图列表"""
         from src.utils.map_loader import map_loader
         available_maps = map_loader.get_available_maps()
-        if not available_maps:
-            available_maps = ["default"]
         
-        self.map_names = available_maps
+        self.map_names = []
         self.map_display_names = []
         self.map_name_mapping = {}
         
-        for map_name in available_maps:
-            if map_name == "default":
-                display_name = "默认地图"
-            else:
-                map_data = map_loader.load_map(map_name)
+        if not available_maps:
+            # 处理默认地图情况
+            self.map_names = ["default"]
+            self.map_display_names = ["默认地图"]
+            self.map_name_mapping = {"默认地图": "default"}
+            return
+        
+        for map_info in available_maps:
+            # map_info是包含地图信息的字典
+            map_identifier = map_info["filename"]  # 使用文件名作为唯一标识符
+            
+            try:
+                map_data = map_loader.load_map(map_identifier)
                 if map_data and 'name' in map_data:
                     wall_count = len(map_data.get('walls', []))
                     display_name = f"{map_data['name']} ({wall_count} 个障碍物)"
                 else:
-                    display_name = map_name
+                    display_name = map_identifier.replace(".json", "")
+            except Exception as e:
+                print(f"加载地图 {map_identifier} 时出错: {e}")
+                display_name = map_identifier.replace(".json", "")
             
+            self.map_names.append(map_identifier)
             self.map_display_names.append(display_name)
-            self.map_name_mapping[display_name] = map_name
-        
-        if not self.map_display_names:
-            self.map_display_names = ["默认地图"]
-            self.map_names = ["default"]
-            self.map_name_mapping = {"默认地图": "default"}
+            self.map_name_mapping[display_name] = map_identifier
     
     def _update_images(self):
         # Local

@@ -351,3 +351,4 @@ class ScreenManager:
 
     def _get_current_screen(self) -> Optional[BaseScreen]:
         return self.screens.get(self.current_state)
+

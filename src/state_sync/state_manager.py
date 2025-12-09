@@ -334,3 +334,4 @@ class StateManager:
             for prop_data in state.get("props", []):
                 prop = Prop(prop_data["x"], prop_data["y"], prop_data["type"])
                 self.world.prop_manager.props.add(prop)
+
