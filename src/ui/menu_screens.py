@@ -186,9 +186,11 @@ class SinglePlayerSetupScreen(BaseScreen):
             manager=self.manager
         )
         
-        # Map selection section
+        # Map selection section - 居中显示
+        map_section_y = 220
+        
         UILabel(
-            relative_rect=pygame.Rect((center_x - 300, 220), (200, 30)),
+            relative_rect=pygame.Rect((center_x - 250, map_section_y), (200, 30)),
             text="选择地图",
             manager=self.manager
         )
@@ -198,7 +200,7 @@ class SinglePlayerSetupScreen(BaseScreen):
         
         # Map selection list (replacing dropdown)
         self.map_selection_list = UISelectionList(
-            relative_rect=pygame.Rect((center_x - 300, 260), (200, 120)),
+            relative_rect=pygame.Rect((center_x - 250, map_section_y + 40), (200, 120)),
             item_list=self.map_display_names,
             default_selection=self.map_display_names[0],
             manager=self.manager
@@ -206,13 +208,13 @@ class SinglePlayerSetupScreen(BaseScreen):
         
         # Map preview area
         UILabel(
-            relative_rect=pygame.Rect((center_x + 50, 220), (200, 30)),
+            relative_rect=pygame.Rect((center_x + 50, map_section_y), (200, 30)),
             text="地图预览",
             manager=self.manager
         )
         
         # Preview surface
-        self.preview_rect = pygame.Rect((center_x + 50, 260), (200, 120))
+        self.preview_rect = pygame.Rect((center_x + 50, map_section_y + 40), (200, 120))
         self.preview_surface = pygame.Surface((200, 120))
         self.preview_surface.fill((60, 60, 60))
         
@@ -228,9 +230,9 @@ class SinglePlayerSetupScreen(BaseScreen):
         
         self.context.selected_map = self.map_names[0]
         
-        # Difficulty Selection
+        # Difficulty Selection - 居中显示
         UILabel(
-            relative_rect=pygame.Rect((center_x + 50, 130), (100, 30)),
+            relative_rect=pygame.Rect((center_x - 50, 130), (100, 30)),
             text="敌人难度",
             manager=self.manager
         )
@@ -242,7 +244,7 @@ class SinglePlayerSetupScreen(BaseScreen):
         self.difficulty_dropdown = UIDropDownMenu(
             options_list=self.difficulty_names,
             starting_option=default_diff_name,
-            relative_rect=pygame.Rect((center_x + 50, 160), (100, 30)),
+            relative_rect=pygame.Rect((center_x + 60, 130), (100, 30)),
             manager=self.manager
         )
         print(f"[DEBUG] Dropdown init: options={self.difficulty_names}, start={default_diff_name}")
@@ -731,15 +733,24 @@ class RoomScreen(BaseScreen):
     def on_enter(self):
         super().on_enter()
         
+        # 获取屏幕中心坐标
+        screen_width = self.surface.get_width()
+        screen_height = self.surface.get_height()
+        center_x = screen_width // 2
+        center_y = screen_height // 2
+        
+        # 标题 - 居中显示
         UILabel(
-            relative_rect=pygame.Rect((50, 50), (200, 30)),
+            relative_rect=pygame.Rect((center_x - 100, 50), (200, 30)),
             text="等待玩家...",
             manager=self.manager
         )
         
-        # 玩家列表
+        # 玩家列表 - 居中显示
+        player_list_width = 300
+        player_list_height = 100
         self.player_list = UISelectionList(
-            relative_rect=pygame.Rect((50, 100), (300, 100)),
+            relative_rect=pygame.Rect((center_x - player_list_width // 2, 100), (player_list_width, player_list_height)),
             item_list=["Player1 (Host)"], 
             manager=self.manager
         )
@@ -748,9 +759,12 @@ class RoomScreen(BaseScreen):
         self.local_ready = False
         self.remote_ready = False
         
+        # 中间区域：地图选择（居中显示，房主专用）
+        map_section_y = 250
+        
         # Map Selection (Host Only)
         UILabel(
-            relative_rect=pygame.Rect((50, 210), (100, 30)),
+            relative_rect=pygame.Rect((center_x - 50, map_section_y), (100, 30)),
             text="选择地图:",
             manager=self.manager
         )
@@ -759,7 +773,7 @@ class RoomScreen(BaseScreen):
         self._load_available_maps()
         
         self.map_selection_list = UISelectionList(
-            relative_rect=pygame.Rect((50, 250), (300, 100)),
+            relative_rect=pygame.Rect((center_x - 150, map_section_y + 40), (300, 100)),
             item_list=self.map_display_names,
             default_selection=self.map_display_names[0],
             manager=self.manager
@@ -773,9 +787,9 @@ class RoomScreen(BaseScreen):
         if not getattr(self.context, 'is_host', False):
             self.map_selection_list.disable()
             
-        # Difficulty Selection (Host Only)
+        # Difficulty Selection (Host Only) - 放在地图选择右侧
         UILabel(
-            relative_rect=pygame.Rect((50, 360), (100, 30)),
+            relative_rect=pygame.Rect((center_x + 170, map_section_y), (100, 30)),
             text="敌人难度:",
             manager=self.manager
         )
@@ -787,7 +801,7 @@ class RoomScreen(BaseScreen):
         self.difficulty_dropdown = UIDropDownMenu(
             options_list=self.difficulty_names,
             starting_option=default_diff_name,
-            relative_rect=pygame.Rect((160, 360), (150, 30)),
+            relative_rect=pygame.Rect((center_x + 170, map_section_y + 40), (150, 30)),
             manager=self.manager
         )
         
@@ -797,43 +811,67 @@ class RoomScreen(BaseScreen):
         if not getattr(self.context, 'is_host', False):
             self.difficulty_dropdown.disable()
         
-        # Tank Selection UI
+        # 下方区域：坦克选择（左右分布）
+        tank_section_y = 400
+        
         self.local_tank_id = 1
         self.remote_tank_id = 1
         self.context.player_tank_id = 1
         self.context.enemy_tank_id = 1
         
-        # Local Tank (Right side)
-        UILabel(relative_rect=pygame.Rect((400, 250), (100, 30)), text="你的坦克", manager=self.manager)
-        self.local_image_rect = pygame.Rect((400, 290), (100, 100))
+        # Local Tank (左侧)
+        UILabel(
+            relative_rect=pygame.Rect((center_x - 250, tank_section_y), (100, 30)), 
+            text="你的坦克", 
+            manager=self.manager
+        )
+        self.local_image_rect = pygame.Rect((center_x - 250, tank_section_y + 40), (100, 100))
         self.local_image_elem = None
         
-        self.btn_prev = UIButton(relative_rect=pygame.Rect((400, 400), (45, 30)), text='<', manager=self.manager)
-        self.btn_next = UIButton(relative_rect=pygame.Rect((455, 400), (45, 30)), text='>', manager=self.manager)
+        self.btn_prev = UIButton(
+            relative_rect=pygame.Rect((center_x - 250, tank_section_y + 150), (45, 30)), 
+            text='<', 
+            manager=self.manager
+        )
+        self.btn_next = UIButton(
+            relative_rect=pygame.Rect((center_x - 195, tank_section_y + 150), (45, 30)), 
+            text='>', 
+            manager=self.manager
+        )
         
-        # Remote Tank (Right side below local) - Display Only
-        UILabel(relative_rect=pygame.Rect((550, 250), (100, 30)), text="对手坦克", manager=self.manager)
-        self.remote_image_rect = pygame.Rect((550, 290), (100, 100))
+        # Remote Tank (右侧) - Display Only
+        UILabel(
+            relative_rect=pygame.Rect((center_x + 150, tank_section_y), (100, 30)), 
+            text="对手坦克", 
+            manager=self.manager
+        )
+        self.remote_image_rect = pygame.Rect((center_x + 150, tank_section_y + 40), (100, 100))
         self.remote_image_elem = None
         
         self._update_images()
-
+        
+        # 控制按钮区域 - 底部居中
+        btn_width = 150
+        btn_height = 50
+        btn_spacing = 20
+        btn_y = 580  # 坦克选择下方
+        
         self.btn_ready = UIButton(
-            relative_rect=pygame.Rect((400, 100), (150, 50)),
+            relative_rect=pygame.Rect((center_x - btn_width - btn_spacing // 2, btn_y), (btn_width, btn_height)),
             text='准备',
             manager=self.manager
         )
         
         # Ready status label
         self.ready_status_label = UILabel(
-            relative_rect=pygame.Rect((400, 160), (250, 30)),
+            relative_rect=pygame.Rect((center_x - 125, btn_y + 60), (250, 30)),
             text="状态: 未准备",
             manager=self.manager
         )
         
         # 仅房主可见
         self.btn_start = UIButton(
-            relative_rect=pygame.Rect((560, 100), (150, 50)),
+            relative_rect=pygame.Rect((center_x + btn_spacing // 2, btn_y), (btn_width, btn_height)),
             text='开始游戏',
             manager=self.manager
         )
@@ -842,8 +880,9 @@ class RoomScreen(BaseScreen):
         else:
             self.btn_start.disable()  # Disabled until both ready
             
+        # 离开房间按钮 - 底部居中
         self.btn_leave = UIButton(
-            relative_rect=pygame.Rect((50, 500), (150, 50)),
+            relative_rect=pygame.Rect((center_x - 75, screen_height - 100), (150, 50)),
             text='离开房间',
             manager=self.manager
         )
