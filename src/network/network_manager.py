@@ -36,6 +36,7 @@ class NetworkManager:
         self._incoming_state = queue.Queue() # Queue for game state (from Host)
         self._incoming_input = queue.Queue() # Queue for input (from Client)
         self._event_queue = queue.Queue() # Queue for non-state events (for Client)
+        self._client_buffer = ""  # Buffer for client TCP data
         self.found_servers = [] # List of (ip, room_name)
 
     # ------------------------------------------------------------------ #
@@ -43,28 +44,33 @@ class NetworkManager:
     # ------------------------------------------------------------------ #
     def start_host(self):
         """启动主机模式：TCP监听 + UDP广播响应"""
-        if self._running: return
+        if self._running: 
+            print("[Network] Host already running")
+            return
         self.stats.role = "host"
         self._running = True
         
         # TCP Server
         self._tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._tcp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # Allow address reuse
         self._tcp_socket.bind(('0.0.0.0', self.CONTROL_PORT))
         self._tcp_socket.listen(1)
         self._tcp_socket.settimeout(0.2)
+        print(f"[Network] TCP server listening on port {self.CONTROL_PORT}")
         
         # UDP Listener (for discovery)
         self._udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self._udp_socket.bind(('0.0.0.0', self.BROADCAST_PORT))
         self._udp_socket.settimeout(0.5)  # Prevent blocking
+        print(f"[Network] UDP listener bound on port {self.BROADCAST_PORT}")
         
         # Threads
         t_tcp = threading.Thread(target=self._host_tcp_accept_loop, daemon=True)
         t_udp = threading.Thread(target=self._host_udp_respond_loop, daemon=True)
         self._threads = [t_tcp, t_udp]
         for t in self._threads: t.start()
-        print("[Network] Host started")
+        print("[Network] Host started successfully")
 
     def start_client(self):
         """启动客户端模式：TCP连接 + UDP发现"""
@@ -87,17 +93,34 @@ class NetworkManager:
     def connect_to_server(self, server_ip: str) -> bool:
         """客户端连接到主机"""
         try:
+            # Store host IP for potential reconnection
+            self._last_host_ip = server_ip
+            
+            print(f"[Network] Attempting to connect to {server_ip}:{self.CONTROL_PORT}")
+            
+            # Create a new socket each time to avoid reusing closed sockets
             self._tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._tcp_socket.settimeout(5.0)  # Add timeout to prevent hanging
+            
             self._tcp_socket.connect((server_ip, self.CONTROL_PORT))
             self._conn = self._tcp_socket
             self.stats.connected = True
             
+            # Initialize last state time
+            self._last_state_time = time.time()
+            
             # Start receiving loop
-            t_recv = threading.Thread(target=self._tcp_recv_loop, args=(self._conn, self._incoming_state), daemon=True)
+            t_recv = threading.Thread(target=self._client_receiver_loop, daemon=True)
             t_recv.start()
             self._threads.append(t_recv)
-            print(f"[Network] Connected to {server_ip}")
+            print(f"[Network] Successfully connected to {server_ip}")
             return True
+        except socket.timeout:
+            print(f"[Network] Connection timeout to {server_ip}:{self.CONTROL_PORT}")
+            return False
+        except ConnectionRefusedError:
+            print(f"[Network] Connection refused by {server_ip}:{self.CONTROL_PORT}")
+            return False
         except Exception as e:
             print(f"[Network] Connection failed: {e}")
             return False
@@ -140,7 +163,98 @@ class NetworkManager:
     # ------------------------------------------------------------------ #
     def update(self):
         """在游戏循环中调用"""
-        pass # 实际逻辑在线程中处理
+        # Check for connection timeouts and attempt reconnection
+        if self.stats.connected and self._conn:
+            # Check if connection is still alive
+            if self.stats.role == "client":
+                # Client: Check if we're still receiving data from host
+                current_time = time.time()
+                if hasattr(self, '_last_state_time'):
+                    # If no state received for more than 5 seconds, consider disconnected
+                    if current_time - self._last_state_time > 5.0:
+                        print("[Network] Connection timeout - no data received from host")
+                        self._handle_disconnect()
+                else:
+                    # Initialize timestamp
+                    self._last_state_time = current_time
+            elif self.stats.role == "host":
+                # Host: Check if client is still responsive
+                current_time = time.time()
+                if hasattr(self, '_last_input_time'):
+                    # If no input received for more than 5 seconds, consider disconnected
+                    if current_time - self._last_input_time > 5.0:
+                        print("[Network] Connection timeout - no input received from client")
+                        self._handle_disconnect()
+                else:
+                    # Initialize timestamp
+                    self._last_input_time = current_time
+        
+        # Attempt reconnection if disconnected
+        if not self.stats.connected and hasattr(self, '_reconnect_attempt'):
+            current_time = time.time()
+            # Try to reconnect every 3 seconds
+            if current_time - self._last_reconnect_time > 3.0:
+                if self._reconnect_attempt < 5:  # Max 5 attempts
+                    print(f"[Network] Attempting reconnection ({self._reconnect_attempt + 1}/5)")
+                    self._attempt_reconnect()
+                    self._reconnect_attempt += 1
+                    self._last_reconnect_time = current_time
+                else:
+                    print("[Network] Max reconnection attempts reached")
+                    self._reconnect_attempt = None
+    
+    def _handle_disconnect(self):
+        """Handle disconnection"""
+        if self._conn:
+            try:
+                self._conn.close()
+            except:
+                pass
+            self._conn = None
+        
+        self.stats.connected = False
+        self.stats.role = "none"
+        
+        # Initialize reconnection attempts
+        self._reconnect_attempt = 0
+        self._last_reconnect_time = time.time()
+        
+        # Clear queues
+        self._incoming_state.queue.clear()
+        self._incoming_input.queue.clear()
+        self._event_queue.queue.clear()
+    
+    def _attempt_reconnect(self):
+        """Attempt to reconnect to the last host"""
+        if hasattr(self, '_last_host_ip') and self._last_host_ip:
+            try:
+                # Create new TCP socket
+                self._conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self._conn.settimeout(3.0)  # 3 second timeout
+                self._conn.connect((self._last_host_ip, self.CONTROL_PORT))
+                
+                # Start receiver thread
+                self._receiver_thread = threading.Thread(target=self._client_receiver_loop, daemon=True)
+                self._receiver_thread.start()
+                
+                self.stats.connected = True
+                self.stats.role = "client"
+                
+                print(f"[Network] Successfully reconnected to host at {self._last_host_ip}")
+                
+                # Clear reconnection state
+                self._reconnect_attempt = None
+                
+                # Add reconnection event to queue
+                self._event_queue.put({"type": "reconnected", "payload": {}})
+            except Exception as e:
+                print(f"[Network] Reconnection failed: {e}")
+                if self._conn:
+                    try:
+                        self._conn.close()
+                    except:
+                        pass
+                    self._conn = None
 
     def send_state(self, payload: dict):
         """主机发送状态给客户端"""
@@ -167,21 +281,35 @@ class NetworkManager:
         if self.stats.connected and self._conn:
             self._send_json(self._conn, {"type": "ready_state", "payload": {"is_ready": is_ready}})
 
-    def send_game_start(self, p1_tank_id: int, p2_tank_id: int, map_name: str = "default", map_data: dict = None):
-        """主机发送游戏开始信号（包含完整地图数据）"""
+    def send_game_start(self, p1_tank_id: int, p2_tank_id: int, map_name: str = "default", 
+                        map_data: dict = None, game_mode: str = "coop", level_number: int = None):
+        """主机发送游戏开始信号（包含完整地图数据、游戏模式和关卡编号）"""
         if self.stats.role == "host" and self.stats.connected and self._conn:
             payload = {
                 "p1_tank_id": p1_tank_id,
                 "p2_tank_id": p2_tank_id,
-                "map_name": map_name
+                "map_name": map_name,
+                "game_mode": game_mode
             }
             
             # Include map data if provided
             if map_data:
                 payload["map_data"] = map_data
             
+            # Include level number if provided
+            if level_number is not None:
+                payload["level_number"] = level_number
+            
             self._send_json(self._conn, {
                 "type": "game_start", 
+                "payload": payload
+            })
+
+    def send_event(self, event_type: str, payload: dict):
+        """通用事件发送方法"""
+        if self.stats.connected and self._conn:
+            self._send_json(self._conn, {
+                "type": event_type, 
                 "payload": payload
             })
 
@@ -227,14 +355,59 @@ class NetworkManager:
         """客户端发送发现广播"""
         if self.stats.role == "client" and self._udp_socket:
             msg = json.dumps({"type": "scan"}).encode('utf-8')
-            # Try multiple broadcast addresses
+            # Try multiple broadcast addresses including common network configurations
             targets = ['<broadcast>', '255.255.255.255', '127.0.0.1']
-            for target in targets:
+            
+            # Add local network broadcast addresses
+            try:
+                import socket
+                # Get local IP addresses and their broadcast addresses
+                hostname = socket.gethostname()
+                local_ips = socket.gethostbyname_ex(hostname)[2]
+                for ip in local_ips:
+                    if ip.startswith('192.168.'):
+                        # Class C private network
+                        broadcast_ip = ip.rsplit('.', 1)[0] + '.255'
+                        targets.append(broadcast_ip)
+                    elif ip.startswith('10.'):
+                        # Class A private network - simplified
+                        broadcast_ip = '10.255.255.255'
+                        targets.append(broadcast_ip)
+                    elif ip.startswith('172.'):
+                        # Class B private network - simplified
+                        broadcast_ip = '172.31.255.255'
+                        targets.append(broadcast_ip)
+            except Exception as e:
+                print(f"[Network] Error getting local IPs: {e}")
+            
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_targets = [t for t in targets if not (t in seen or seen.add(t))]
+            
+            # Send to all targets with error handling
+            success_count = 0
+            for target in unique_targets:
                 try:
                     self._udp_socket.sendto(msg, (target, self.BROADCAST_PORT))
+                    success_count += 1
                 except Exception as e:
-                    # print(f"[Network] Broadcast to {target} failed: {e}")
-                    pass
+                    # Only log for non-common errors to reduce spam
+                    if "Network is unreachable" not in str(e) and "Permission denied" not in str(e):
+                        print(f"[Network] Broadcast to {target} failed: {e}")
+            
+            # If all broadcasts failed, try to recreate socket
+            if success_count == 0 and self._running:
+                print("[Network] All broadcasts failed, attempting to recreate UDP socket")
+                try:
+                    if self._udp_socket:
+                        self._udp_socket.close()
+                    self._udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    self._udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                    self._udp_socket.bind(('0.0.0.0', 0))  # Random port
+                    self._udp_socket.settimeout(0.5)
+                    print("[Network] UDP socket recreated successfully")
+                except Exception as e:
+                    print(f"[Network] Failed to recreate UDP socket: {e}")
 
     # ------------------------------------------------------------------ #
     # 内部线程循环
@@ -259,6 +432,7 @@ class NetworkManager:
                 break
 
     def _host_udp_respond_loop(self):
+        """主机UDP广播响应线程"""
         while self._running:
             try:
                 data, addr = self._udp_socket.recvfrom(1024)
@@ -270,6 +444,7 @@ class NetworkManager:
                         "timestamp": time.time()
                     }).encode('utf-8')
                     self._udp_socket.sendto(response, addr)
+                    print(f"[Network] Responded to scan from {addr[0]}:{addr[1]}")
             except socket.timeout:
                 pass
             except Exception as e:
@@ -302,6 +477,10 @@ class NetworkManager:
                     self.stats.connected = False
                     break
                 
+                # Host: any incoming data counts as activity for timeout detection
+                if self.stats.role == "host":
+                    self._last_input_time = time.time()
+
                 buffer += data.decode('utf-8')
                 while '\n' in buffer:
                     line, buffer = buffer.split('\n', 1)
@@ -314,6 +493,85 @@ class NetworkManager:
             except Exception as e:
                 if self._running: print(f"[Network] Recv error: {e}")
                 self.stats.connected = False
+                break
+
+    def _client_receiver_loop(self):
+        """客户端接收消息线程"""
+        while self._running and self._conn:
+            try:
+                data = self._conn.recv(4096)
+                if not data:
+                    print("[Network] Connection closed by host")
+                    self._handle_disconnect()
+                    break
+                    
+                buffer = data.decode('utf-8')
+                self._client_buffer += buffer
+                
+                while '\n' in self._client_buffer:
+                    line, self._client_buffer = self._client_buffer.split('\n', 1)
+                    if not line:
+                        continue
+                        
+                    try:
+                        msg = json.loads(line)
+                        msg_type = msg.get("type")
+                        
+                        # Update last state time for timeout detection
+                        if msg_type == "state":
+                            self._last_state_time = time.time()
+                            self._incoming_state.put(msg)
+                        else:
+                            # 所有非状态消息统一放入事件队列，避免大厅更新等被丢弃
+                            self._event_queue.put(msg)
+                    except json.JSONDecodeError:
+                        continue
+                        
+            except socket.timeout:
+                continue
+            except Exception as e:
+                if self._running:
+                    print(f"[Network] Client receiver error: {e}")
+                    self._handle_disconnect()
+                break
+
+    def _host_receiver_loop(self, conn: socket.socket):
+        """主机接收消息线程"""
+        while self._running and conn:
+            try:
+                data = conn.recv(4096)
+                if not data:
+                    print("[Network] Client disconnected")
+                    self._handle_disconnect()
+                    break
+                    
+                buffer = data.decode('utf-8')
+                self._host_buffer += buffer
+                
+                while '\n' in self._host_buffer:
+                    line, self._host_buffer = self._host_buffer.split('\n', 1)
+                    if not line:
+                        continue
+                        
+                    try:
+                        msg = json.loads(line)
+                        msg_type = msg.get("type")
+                        
+                        # Update last input time for timeout detection
+                        if msg_type == "input":
+                            self._last_input_time = time.time()
+                            self._incoming_input.put(msg)
+                        elif msg_type in ("lobby_update", "map_selection", "ready_state"):
+                            self._incoming_input.put(msg)
+                    except json.JSONDecodeError:
+                        continue
+                        
+            except socket.timeout:
+                continue
+            except Exception as e:
+                if self._running:
+                    print(f"[Network] Host receiver error: {e}")
+                    self._handle_disconnect()
                 break
 
     def _send_json(self, sock: socket.socket, data: dict):

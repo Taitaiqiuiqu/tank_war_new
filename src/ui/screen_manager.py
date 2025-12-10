@@ -8,6 +8,7 @@ from typing import Dict, Optional
 
 import pygame
 import pygame_gui
+from pygame_gui.elements import UIButton, UILabel, UIPanel
 
 from src.ui.ui_components import UIManagerWrapper
 
@@ -25,6 +26,7 @@ class ScreenContext:
     # 联机相关
     is_host: bool = False
     username: str = "Player"
+    remote_username: str = "Player2"  # 联机模式下显示对方名称
     game_mode: str = "single"  # 'single', 'multi', or 'level'
     
     # 坦克选择
@@ -101,9 +103,8 @@ class TextScreen(BaseScreen):
         self.description = description
 
     def handle_event(self, event: pygame.event.Event):
-        # 只有当当前屏幕状态是game_over或相关菜单状态时，才处理按键事件返回主菜单
-        if event.type == pygame.KEYDOWN and hasattr(self.context.screen_manager, 'current_state') and self.context.screen_manager.current_state == "game_over":
-            self.context.next_state = "menu"
+        # TextScreen 保持静默，不处理按键跳转
+        return
 
     def render(self):
         width, height = self.surface.get_size()
@@ -123,25 +124,102 @@ class GameOverScreen(BaseScreen):
     def __init__(self, surface: pygame.Surface, context: ScreenContext, ui_manager: UIManagerWrapper, network_manager=None):
         super().__init__(surface, context, ui_manager, network_manager)
         self.title = "游戏结束"
-        self.description = "按任意键返回主菜单"
+        self.description = "使用下方按钮继续"
         self.game_won = False
+        self.panel: UIPanel | None = None
+        self.btn_restart: UIButton | None = None
+        self.btn_select: UIButton | None = None
+        self.btn_exit: UIButton | None = None
+        self.btn_next_level: UIButton | None = None
 
     def on_enter(self):
         super().on_enter()
         # 从上下文中获取游戏结果
         self.game_won = getattr(self.context, 'game_won', False)
+        next_level = getattr(self.context, "next_level", None)
+        is_level_mode = getattr(self.context, "game_mode", "single") == "level"
+        show_next_level = self.game_won and is_level_mode and next_level is not None
         
         if self.game_won:
             self.title = "恭喜你获胜了！"
-            self.description = "你成功击败了所有敌人！按任意键返回主菜单"
+            self.description = "你成功击败了所有敌人！"
         else:
             self.title = "游戏结束"
-            self.description = "你被敌人击败了！按任意键返回主菜单"
+            self.description = "你被敌人击败了！"
+
+        # 创建卡片布局与按钮
+        width, height = self.surface.get_size()
+        card_w = min(520, max(420, int(width * 0.45)))
+        padding = 24
+        btn_h = 56
+        spacing = 14
+        btn_count = 4 if show_next_level else 3
+        btn_block_h = btn_count * btn_h + (btn_count - 1) * spacing
+        card_h = max(340, padding * 2 + 80 + btn_block_h)
+        card_x = (width - card_w) // 2
+        card_y = max(80, (height - card_h) // 2)
+        btn_w = card_w - padding * 2
+        btn_y = padding + 80
+
+        self.panel = UIPanel(
+            relative_rect=pygame.Rect(card_x, card_y, card_w, card_h),
+            manager=self.manager,
+            object_id="#game_over_panel"
+        )
+
+        UILabel(
+            relative_rect=pygame.Rect(padding, padding, btn_w, 40),
+            text=self.title,
+            manager=self.manager,
+            container=self.panel,
+            object_id="@title"
+        )
+        UILabel(
+            relative_rect=pygame.Rect(padding, padding + 42, btn_w, 30),
+            text=self.description,
+            manager=self.manager,
+            container=self.panel,
+            object_id="@subtitle"
+        )
+
+        self.btn_restart = UIButton(
+            relative_rect=pygame.Rect(padding, btn_y if not show_next_level else btn_y + (btn_h + spacing), btn_w, btn_h),
+            text='再来一局',
+            manager=self.manager,
+            container=self.panel
+        )
+        self.btn_select = UIButton(
+            relative_rect=pygame.Rect(padding, btn_y + (btn_h + spacing) * (1 if not show_next_level else 2), btn_w, btn_h),
+            text='选择关卡/地图',
+            manager=self.manager,
+            container=self.panel
+        )
+        self.btn_exit = UIButton(
+            relative_rect=pygame.Rect(padding, btn_y + (btn_h + spacing) * (2 if not show_next_level else 3), btn_w, btn_h),
+            text='退出到主菜单',
+            manager=self.manager,
+            container=self.panel
+        )
+        if show_next_level:
+            self.btn_next_level = UIButton(
+                relative_rect=pygame.Rect(padding, btn_y, btn_w, btn_h),
+                text=f'进入第{next_level}关',
+                manager=self.manager,
+                container=self.panel
+            )
+        else:
+            self.btn_next_level = None
 
     def handle_event(self, event: pygame.event.Event):
-        # 只有当当前屏幕状态是game_over时，才处理按键事件返回主菜单
-        if event.type == pygame.KEYDOWN and hasattr(self.context.screen_manager, 'current_state') and self.context.screen_manager.current_state == "game_over":
-            self.context.next_state = "menu"
+        if event.type == pygame_gui.UI_BUTTON_PRESSED:
+            if event.ui_element == self.btn_next_level:
+                self._go_to_next_level()
+            elif event.ui_element == self.btn_restart:
+                self._restart_game()
+            elif event.ui_element == self.btn_select:
+                self._go_to_selection()
+            elif event.ui_element == self.btn_exit:
+                self._exit_to_menu()
 
     def render(self):
         width, height = self.surface.get_size()
@@ -157,6 +235,45 @@ class GameOverScreen(BaseScreen):
         
         # 绘制 UI 元素（如果有）
         self.ui_manager.draw_ui(self.surface)
+
+    def _restart_game(self):
+        """重新开始当前模式"""
+        # 优先通过 ScreenManager 触发状态切换，GameEngine 会在 update 中重建世界
+        if hasattr(self.context, "screen_manager"):
+            self.context.screen_manager.set_state("game")
+        else:
+            self.context.next_state = "game"
+
+    def _go_to_selection(self):
+        """跳转到关卡/地图选择界面"""
+        mode = getattr(self.context, "game_mode", "single")
+        target_state = "single_setup"
+        if mode == "level":
+            target_state = "level_select"
+        elif mode == "multi":
+            # 联机模式下返回大厅由玩家重新创建房间/选择地图
+            target_state = "lobby"
+        self.context.next_state = target_state
+
+    def _go_to_next_level(self):
+        """进入下一关（仅关卡模式胜利时显示）"""
+        next_level = getattr(self.context, "next_level", None)
+        engine = getattr(getattr(self.context, "screen_manager", None), "game_engine", None)
+        if next_level and engine:
+            engine.current_level = next_level
+            self.context.selected_level = next_level
+            self.context.next_state = "game"
+        else:
+            # 回退：如果无法获取引擎或下一关，退到关卡选择
+            self._go_to_selection()
+
+    def _exit_to_menu(self):
+        """退出到主菜单并清理游戏状态"""
+        engine = getattr(getattr(self.context, "screen_manager", None), "game_engine", None)
+        if engine and hasattr(engine, "_exit_to_menu"):
+            engine._exit_to_menu()
+        else:
+            self.context.next_state = "menu"
 
 
 class ScreenManager:
@@ -285,6 +402,7 @@ class ScreenManager:
             LevelSelectScreen,
             LevelTankSelectScreen,
             SingleModeSelectScreen,
+            TankSelectScreen,
             SettingsScreen
         )
         from src.ui.map_editor_screen import MapEditorScreen
@@ -338,6 +456,10 @@ class ScreenManager:
         self.register_screen(
             "single_mode_select",
             SingleModeSelectScreen(self.surface, self.context, self.ui_manager, self.network_manager)
+        )
+        self.register_screen(
+            "tank_select",
+            TankSelectScreen(self.surface, self.context, self.ui_manager, self.network_manager)
         )
         # 关卡模式相关屏幕
         self.register_screen(

@@ -3,7 +3,7 @@ import src.ui.init_i18n
 
 import pygame
 import pygame_gui
-from pygame_gui.elements import UIButton, UILabel, UISelectionList, UIImage, UITextEntryLine, UIDropDownMenu
+from pygame_gui.elements import UIButton, UILabel, UISelectionList, UIImage, UITextEntryLine, UIDropDownMenu, UIPanel
 from pygame_gui.windows import UIMessageWindow
 
 from src.ui.screen_manager import BaseScreen, ScreenContext
@@ -19,41 +19,63 @@ class MainMenuScreen(BaseScreen):
     def on_enter(self):
         super().on_enter()
         
-        # 创建主菜单按钮
-        center_x = self.surface.get_width() // 2
-        center_y = self.surface.get_height() // 2
-        btn_width = 200
-        btn_height = 50
-        spacing = 20
+        # 像素风卡片布局
+        w, h = self.surface.get_size()
+        card_w = min(520, max(420, int(w * 0.45)))
+        padding = 24
+        btn_block_h = 5 * 56 + 4 * 14  # 5个按钮 + 4个间距
+        card_h = max(480, padding * 2 + 60 + btn_block_h)
+        card_x = (w - card_w) // 2
+        card_y = max(60, (h - card_h) // 2)
+        btn_w = card_w - padding * 2
+        btn_h = 56
+        spacing = 14
         
+        self.panel = UIPanel(
+            relative_rect=pygame.Rect(card_x, card_y, card_w, card_h),
+            manager=self.manager,
+            object_id="#main_menu_panel"
+        )
+        
+        # 标题
+        UILabel(
+            relative_rect=pygame.Rect(padding, padding, btn_w, 40),
+            text="坦克大战",
+            manager=self.manager,
+            container=self.panel,
+            object_id="@title"
+        )
+        
+        btn_y = padding + 60
         self.btn_single = UIButton(
-            relative_rect=pygame.Rect((center_x - btn_width // 2, center_y - 100), (btn_width, btn_height)),
+            relative_rect=pygame.Rect(padding, btn_y, btn_w, btn_h),
             text='单机模式',
-            manager=self.manager
+            manager=self.manager,
+            container=self.panel
         )
-        
         self.btn_multi = UIButton(
-            relative_rect=pygame.Rect((center_x - btn_width // 2, center_y - 100 + (btn_height + spacing) * 1), (btn_width, btn_height)),
+            relative_rect=pygame.Rect(padding, btn_y + (btn_h + spacing) * 1, btn_w, btn_h),
             text='联机模式',
-            manager=self.manager
+            manager=self.manager,
+            container=self.panel
         )
-        
         self.btn_settings = UIButton(
-            relative_rect=pygame.Rect((center_x - btn_width // 2, center_y - 100 + (btn_height + spacing) * 2), (btn_width, btn_height)),
+            relative_rect=pygame.Rect(padding, btn_y + (btn_h + spacing) * 2, btn_w, btn_h),
             text='设置',
-            manager=self.manager
+            manager=self.manager,
+            container=self.panel
         )
-        
         self.btn_map_editor = UIButton(
-            relative_rect=pygame.Rect((center_x - btn_width // 2, center_y - 100 + (btn_height + spacing) * 3), (btn_width, btn_height)),
+            relative_rect=pygame.Rect(padding, btn_y + (btn_h + spacing) * 3, btn_w, btn_h),
             text='地图编辑器',
-            manager=self.manager
+            manager=self.manager,
+            container=self.panel
         )
-        
         self.btn_exit = UIButton(
-            relative_rect=pygame.Rect((center_x - btn_width // 2, center_y - 100 + (btn_height + spacing) * 4), (btn_width, btn_height)),
+            relative_rect=pygame.Rect(padding, btn_y + (btn_h + spacing) * 4, btn_w, btn_h),
             text='退出游戏',
-            manager=self.manager
+            manager=self.manager,
+            container=self.panel
         )
 
     def handle_event(self, event: pygame.event.Event):
@@ -88,6 +110,7 @@ class SingleModeSelectScreen(BaseScreen):
     
     def on_enter(self):
         super().on_enter()
+        scale = getattr(self.ui_manager, "scale_rect", lambda r: r)
         
         center_x = self.surface.get_width() // 2
         center_y = self.surface.get_height() // 2
@@ -97,7 +120,7 @@ class SingleModeSelectScreen(BaseScreen):
         
         # 标题
         UILabel(
-            relative_rect=pygame.Rect((center_x - 100, 100), (200, 30)),
+            relative_rect=scale(pygame.Rect((center_x - 100, 100), (200, 30))),
             text="选择游戏模式",
             manager=self.manager,
             object_id="@title"
@@ -105,21 +128,21 @@ class SingleModeSelectScreen(BaseScreen):
         
         # 自由模式按钮
         self.btn_free_mode = UIButton(
-            relative_rect=pygame.Rect((center_x - btn_width // 2, center_y - 50), (btn_width, btn_height)),
+            relative_rect=scale(pygame.Rect((center_x - btn_width // 2, center_y - 50), (btn_width, btn_height))),
             text='自由模式',
             manager=self.manager
         )
         
         # 关卡模式按钮
         self.btn_level_mode = UIButton(
-            relative_rect=pygame.Rect((center_x - btn_width // 2, center_y + 20), (btn_width, btn_height)),
+            relative_rect=scale(pygame.Rect((center_x - btn_width // 2, center_y + 20), (btn_width, btn_height))),
             text='关卡模式',
             manager=self.manager
         )
         
         # 返回按钮
         self.btn_back = UIButton(
-            relative_rect=pygame.Rect((center_x - btn_width // 2, center_y + 90), (btn_width, btn_height)),
+            relative_rect=scale(pygame.Rect((center_x - btn_width // 2, center_y + 90), (btn_width, btn_height))),
             text='返回主菜单',
             manager=self.manager
         )
@@ -129,8 +152,8 @@ class SingleModeSelectScreen(BaseScreen):
         
         if event.type == pygame_gui.UI_BUTTON_PRESSED:
             if event.ui_element == self.btn_free_mode:
-                # 进入自由模式设置
-                self.context.next_state = "single_setup"
+                # 进入自由模式设置 - 先选择坦克
+                self.context.next_state = "tank_select"
             elif event.ui_element == self.btn_level_mode:
                 # 进入关卡选择界面
                 self.context.next_state = "level_select"
@@ -149,48 +172,144 @@ class SingleModeSelectScreen(BaseScreen):
         )
 
 
-class SinglePlayerSetupScreen(BaseScreen):
-    """单机模式设置屏幕"""
+class TankSelectScreen(BaseScreen):
+    """坦克选择屏幕"""
     
     def on_enter(self):
         super().on_enter()
-        # Initialize font for statistics display
-        self.small_font = pygame.font.SysFont('SimHei', 16)
         
         center_x = self.surface.get_width() // 2
+        center_y = self.surface.get_height() // 2
         
         self.tank_id = 1
         self.context.player_tank_id = 1
         
+        # 标题
         UILabel(
-            relative_rect=pygame.Rect((center_x - 100, 50), (200, 30)),
+            relative_rect=pygame.Rect((center_x - 150, center_y - 200), (300, 50)),
             text="选择你的坦克",
             manager=self.manager
         )
         
-        # Tank Image Display
-        self.image_rect = pygame.Rect((center_x - 50, 100), (100, 100))
+        # Tank Image Display - 增大尺寸并调整位置
+        self.image_rect = pygame.Rect((center_x - 100, center_y - 150), (200, 200))
         self.tank_image_element = None
         self._update_tank_image()
         
-        # Selection Buttons
+        # Selection Buttons - 增大尺寸
         self.btn_prev = UIButton(
-            relative_rect=pygame.Rect((center_x - 160, 130), (100, 40)),
+            relative_rect=pygame.Rect((center_x - 250, center_y - 80), (120, 60)),
             text='< 上一个',
             manager=self.manager
         )
         
         self.btn_next = UIButton(
-            relative_rect=pygame.Rect((center_x + 60, 130), (100, 40)),
+            relative_rect=pygame.Rect((center_x + 130, center_y - 80), (120, 60)),
             text='下一个 >',
             manager=self.manager
         )
         
-        # Map selection section - 居中显示
-        map_section_y = 220
+        # 下一步按钮 - 增大尺寸并调整位置
+        self.btn_next_step = UIButton(
+            relative_rect=pygame.Rect((center_x - 120, center_y + 80), (240, 60)),
+            text='下一步',
+            manager=self.manager
+        )
+        
+        # 返回按钮 - 增大尺寸并调整位置
+        self.btn_back = UIButton(
+            relative_rect=pygame.Rect((center_x - 120, center_y + 160), (240, 60)),
+            text='返回',
+            manager=self.manager
+        )
+    
+    def _update_tank_image(self):
+        if self.tank_image_element:
+            self.tank_image_element.kill()
+            
+        # Load tank image (Level 0, UP direction)
+        # resource_manager.load_tank_images returns dict[dir][frame]
+        images = resource_manager.load_tank_images('player', self.tank_id, 0)
+        if images and images.get(0):
+            surf = images[0][0]
+            # Scale up for UI - 增大尺寸
+            surf = pygame.transform.scale(surf, (200, 200))
+        else:
+            surf = pygame.Surface((200, 200))
+            surf.fill((0, 255, 0))
+            
+        self.tank_image_element = UIImage(
+            relative_rect=self.image_rect,
+            image_surface=surf,
+            manager=self.manager
+        )
+    
+    def handle_event(self, event: pygame.event.Event):
+        # Note: Do NOT call super().handle_event(event) here!
+        # ScreenManager already calls ui_manager.handle_event() before calling this method.
+        # Calling super() would process the event twice, causing event.text to become None.
+        
+        if event.type == pygame_gui.UI_BUTTON_PRESSED:
+            if event.ui_element == self.btn_next_step:
+                # 进入地图和难度选择界面
+                self.context.next_state = "single_setup"
+            elif event.ui_element == self.btn_back:
+                # 返回单机模式选择界面
+                self.context.next_state = "single_mode_select"
+            elif event.ui_element == self.btn_prev:
+                self.tank_id -= 1
+                if self.tank_id < 1: self.tank_id = 4
+                self.context.player_tank_id = self.tank_id
+                self._update_tank_image()
+            elif event.ui_element == self.btn_next:
+                self.tank_id += 1
+                if self.tank_id > 4: self.tank_id = 1
+                self.context.player_tank_id = self.tank_id
+                self._update_tank_image()
+    
+    def render(self):
+        self.surface.fill((40, 40, 50))
+    
+    def on_exit(self):
+        """清理UI元素"""
+        # 清理坦克图像
+        if hasattr(self, 'tank_image_element'):
+            self.tank_image_element.kill()
+        # 清理按钮
+        if hasattr(self, 'btn_prev'):
+            self.btn_prev.kill()
+        if hasattr(self, 'btn_next'):
+            self.btn_next.kill()
+        if hasattr(self, 'btn_next_step'):
+            self.btn_next_step.kill()
+        if hasattr(self, 'btn_back'):
+            self.btn_back.kill()
+        # 调用父类方法
+        super().on_exit()
+
+
+class SinglePlayerSetupScreen(BaseScreen):
+    """单机模式设置屏幕 - 地图和AI难度选择"""
+    
+    def on_enter(self):
+        super().on_enter()
+        scale = getattr(self.ui_manager, "scale_rect", lambda r: r)
+        
+        center_x = self.surface.get_width() // 2
+        center_y = self.surface.get_height() // 2
+        
+        # 标题
+        UILabel(
+            relative_rect=scale(pygame.Rect((center_x - 150, 80), (300, 40))),
+            text="选择地图和难度",
+            manager=self.manager
+        )
+        
+        # Map selection section
+        map_section_y = 160
         
         UILabel(
-            relative_rect=pygame.Rect((center_x - 250, map_section_y), (200, 30)),
+            relative_rect=scale(pygame.Rect((center_x - 350, map_section_y), (200, 40))),
             text="选择地图",
             manager=self.manager
         )
@@ -198,9 +317,9 @@ class SinglePlayerSetupScreen(BaseScreen):
         # Get available maps
         self._load_available_maps()
         
-        # Map selection list (replacing dropdown)
+        # Map selection list - 增大尺寸
         self.map_selection_list = UISelectionList(
-            relative_rect=pygame.Rect((center_x - 250, map_section_y + 40), (200, 120)),
+            relative_rect=scale(pygame.Rect((center_x - 350, map_section_y + 50), (250, 200))),
             item_list=self.map_display_names,
             default_selection=self.map_display_names[0],
             manager=self.manager
@@ -208,14 +327,14 @@ class SinglePlayerSetupScreen(BaseScreen):
         
         # Map preview area
         UILabel(
-            relative_rect=pygame.Rect((center_x + 50, map_section_y), (200, 30)),
+            relative_rect=scale(pygame.Rect((center_x + 50, map_section_y), (200, 40))),
             text="地图预览",
             manager=self.manager
         )
         
-        # Preview surface
-        self.preview_rect = pygame.Rect((center_x + 50, map_section_y + 40), (200, 120))
-        self.preview_surface = pygame.Surface((200, 120))
+        # Preview surface - 增大尺寸
+        self.preview_rect = scale(pygame.Rect((center_x + 50, map_section_y + 50), (300, 200)))
+        self.preview_surface = pygame.Surface((self.preview_rect.width, self.preview_rect.height))
         self.preview_surface.fill((60, 60, 60))
         
         # Create preview image element
@@ -230,9 +349,11 @@ class SinglePlayerSetupScreen(BaseScreen):
         
         self.context.selected_map = self.map_names[0]
         
-        # Difficulty Selection - 居中显示
+        # Difficulty Selection - 位置下移，避免重叠
+        difficulty_y = map_section_y + 280
+        
         UILabel(
-            relative_rect=pygame.Rect((center_x - 50, 130), (100, 30)),
+            relative_rect=scale(pygame.Rect((center_x - 100, difficulty_y), (200, 40))),
             text="敌人难度",
             manager=self.manager
         )
@@ -244,43 +365,23 @@ class SinglePlayerSetupScreen(BaseScreen):
         self.difficulty_dropdown = UIDropDownMenu(
             options_list=self.difficulty_names,
             starting_option=default_diff_name,
-            relative_rect=pygame.Rect((center_x + 60, 130), (100, 30)),
+            relative_rect=scale(pygame.Rect((center_x + 120, difficulty_y), (150, 40))),
             manager=self.manager
         )
         print(f"[DEBUG] Dropdown init: options={self.difficulty_names}, start={default_diff_name}")
         # Set default in context
         self.context.enemy_difficulty = DEFAULT_DIFFICULTY
         
+        # Buttons - 增大尺寸并调整位置
         self.btn_start = UIButton(
-            relative_rect=pygame.Rect((center_x - 100, 400), (200, 50)),
+            relative_rect=scale(pygame.Rect((center_x - 120, difficulty_y + 80), (240, 60))),
             text='开始游戏',
             manager=self.manager
         )
         
         self.btn_back = UIButton(
-            relative_rect=pygame.Rect((center_x - 100, 470), (200, 50)),
+            relative_rect=scale(pygame.Rect((center_x - 120, difficulty_y + 160), (240, 60))),
             text='返回',
-            manager=self.manager
-        )
-
-    def _update_tank_image(self):
-        if self.tank_image_element:
-            self.tank_image_element.kill()
-            
-        # Load tank image (Level 0, UP direction)
-        # resource_manager.load_tank_images returns dict[dir][frame]
-        images = resource_manager.load_tank_images('player', self.tank_id, 0)
-        if images and images.get(0):
-            surf = images[0][0]
-            # Scale up for UI
-            surf = pygame.transform.scale(surf, (100, 100))
-        else:
-            surf = pygame.Surface((100, 100))
-            surf.fill((0, 255, 0))
-            
-        self.tank_image_element = UIImage(
-            relative_rect=self.image_rect,
-            image_surface=surf,
             manager=self.manager
         )
 
@@ -294,17 +395,8 @@ class SinglePlayerSetupScreen(BaseScreen):
                 self.context.next_state = "game"
                 self.context.game_mode = "single"
             elif event.ui_element == self.btn_back:
-                self.context.next_state = "single_mode_select"
-            elif event.ui_element == self.btn_prev:
-                self.tank_id -= 1
-                if self.tank_id < 1: self.tank_id = 4
-                self.context.player_tank_id = self.tank_id
-                self._update_tank_image()
-            elif event.ui_element == self.btn_next:
-                self.tank_id += 1
-                if self.tank_id > 4: self.tank_id = 1
-                self.context.player_tank_id = self.tank_id
-                self._update_tank_image()
+                # 返回坦克选择界面
+                self.context.next_state = "tank_select"
         elif event.type == pygame_gui.UI_SELECTION_LIST_NEW_SELECTION:
             if event.ui_element == self.map_selection_list:
                 # Get selected map name from mapping dictionary
@@ -334,6 +426,50 @@ class SinglePlayerSetupScreen(BaseScreen):
                 print(f"难度选择: {text} -> {selected_difficulty}")
 
 
+    def _update_maps_for_game_mode(self, game_mode):
+        """根据游戏模式更新地图列表"""
+        if game_mode == "level":
+            # 关卡模式：加载联机关卡地图
+            self._load_multiplayer_level_maps()
+        else:
+            # 其他模式：加载普通地图
+            self._load_available_maps()
+        
+        # 更新地图选择列表
+        if hasattr(self, 'map_selection_list'):
+            # 更新列表
+            self.map_selection_list.set_item_list(self.map_display_names)
+            
+            # 设置默认选择（如果列表不为空）
+            if self.map_display_names:
+                self.selected_map = self.map_names[0]
+                self.context.selected_map = self.selected_map
+    
+    def _load_multiplayer_level_maps(self):
+        """加载联机关卡地图列表"""
+        from src.utils.multiplayer_level_progress import get_available_multiplayer_levels
+        from src.utils.multiplayer_map_generator import multiplayer_map_generator
+        
+        available_levels = get_available_multiplayer_levels()
+        
+        self.map_names = []
+        self.map_display_names = []
+        self.map_name_mapping = {}
+        
+        for level_info in available_levels:
+            if level_info["unlocked"]:
+                level_num = level_info["level"]
+                map_name = f"level_{level_num}"
+                display_name = f"关卡 {level_num}"
+                
+                # 检查地图文件是否存在，不存在则生成
+                if not multiplayer_map_generator.load_multiplayer_map("level", map_name):
+                    multiplayer_map_generator.generate_level_map(level_num)
+                
+                self.map_names.append(map_name)
+                self.map_display_names.append(display_name)
+                self.map_name_mapping[display_name] = map_name
+    
     def _load_available_maps(self):
         """加载可用地图列表"""
         available_maps = map_loader.get_available_maps()
@@ -406,27 +542,35 @@ class SinglePlayerSetupScreen(BaseScreen):
         # Default map or empty preview
         if map_name == "default":
             # Draw default map placeholder
-            font = pygame.font.SysFont('SimHei', 14)
+            font = pygame.font.SysFont('SimHei', 18)
             text = font.render("默认地图", True, (200, 200, 200))
-            self.preview_surface.blit(text, text.get_rect(center=(100, 60)))
+            self.preview_surface.blit(text, text.get_rect(center=(150, 100)))
         else:
             # Load actual map data and draw preview
             map_data = map_loader.load_map(map_name)
             if map_data and 'walls' in map_data:
-                # Calculate scaling factor
-                scale_x = 200 / 800  # Map width from 800 to 200
-                scale_y = 120 / 600  # Map height from 600 to 120
+                # Calculate scaling factor based on actual map size
+                map_width = map_data.get('width', 800)
+                map_height = map_data.get('height', 600)
                 
+                # Calculate scaling factors while maintaining aspect ratio
+                # Updated to match new preview size (300x200)
+                scale_x = 300 / map_width
+                scale_y = 200 / map_height
+                
+                # Use the smaller scaling factor to fit the entire map in preview area
+                scale = min(scale_x, scale_y)
+            
                 # Draw walls
                 for wall in map_data['walls']:
                     wall_type = wall.get('type', 1)
                     
                     # Calculate scaled position and size
-                    x = int(wall['x'] * scale_x)
-                    y = int(wall['y'] * scale_y)
-                    w = int(50 * scale_x)
-                    h = int(50 * scale_y)
-                    
+                    x = int(wall['x'] * scale)
+                    y = int(wall['y'] * scale)
+                    w = int(50 * scale)
+                    h = int(50 * scale)
+                
                     # Load and draw actual wall image
                     wall_img = resource_manager.get_wall_image(wall_type)
                     if wall_img:
@@ -447,48 +591,48 @@ class SinglePlayerSetupScreen(BaseScreen):
                         else:
                             color = (128, 128, 128)
                         pygame.draw.rect(self.preview_surface, color, (x, y, w, h))
-                
+            
                 # Draw spawn points with actual tank images
                 # Player spawn - use different tank skins (1-4) for different spawn points
                 player_spawns = map_data.get('player_spawns', [])
                 if player_spawns:
                     for idx, spawn in enumerate(player_spawns):
-                        x = int(spawn[0] * scale_x)
-                        y = int(spawn[1] * scale_y)
+                        x = int(spawn[0] * scale)
+                        y = int(spawn[1] * scale)
                         tank_id = (idx % 4) + 1  # Cycle through tank skins 1-4
                         
                         # Load player tank image
                         images = resource_manager.load_tank_images('player', tank_id, 0)
                         if images and images.get(0):
                             tank_img = images[0][0]
-                            scaled_size = int(30 * scale_x)  # Tank is 30x30
+                            scaled_size = int(30 * scale)  # Tank is 30x30
                             scaled_img = pygame.transform.scale(tank_img, (scaled_size, scaled_size))
                             self.preview_surface.blit(scaled_img, (x, y))
                         else:
                             # Fallback to colored circle
                             pygame.draw.circle(self.preview_surface, (0, 255, 0), 
-                                              (x + int(15 * scale_x), y + int(15 * scale_y)), 
-                                              int(10 * scale_x))
-                
+                                              (x + int(15 * scale), y + int(15 * scale)), 
+                                              int(10 * scale))
+            
                 # Enemy spawn - use enemy tank image
                 enemy_spawns = map_data.get('enemy_spawns', [])
                 if enemy_spawns:
                     for spawn in enemy_spawns:
-                        x = int(spawn[0] * scale_x)
-                        y = int(spawn[1] * scale_y)
+                        x = int(spawn[0] * scale)
+                        y = int(spawn[1] * scale)
                         
                         # Load enemy tank image
                         images = resource_manager.load_tank_images('enemy', 1, 0)
                         if images and images.get(0):
                             tank_img = images[0][0]
-                            scaled_size = int(30 * scale_x)  # Tank is 30x30
+                            scaled_size = int(30 * scale)  # Tank is 30x30
                             scaled_img = pygame.transform.scale(tank_img, (scaled_size, scaled_size))
                             self.preview_surface.blit(scaled_img, (x, y))
                         else:
                             # Fallback to colored circle
                             pygame.draw.circle(self.preview_surface, (255, 0, 0), 
-                                              (x + int(15 * scale_x), y + int(15 * scale_y)), 
-                                              int(10 * scale_x))
+                                              (x + int(15 * scale), y + int(15 * scale)), 
+                                              int(10 * scale))
         
         # Update preview image
         if hasattr(self, 'preview_image'):
@@ -507,14 +651,7 @@ class SinglePlayerSetupScreen(BaseScreen):
         # 清理预览图像
         if hasattr(self, 'preview_image'):
             self.preview_image.kill()
-        # 清理坦克图像
-        if hasattr(self, 'tank_image_element'):
-            self.tank_image_element.kill()
         # 清理按钮
-        if hasattr(self, 'btn_prev'):
-            self.btn_prev.kill()
-        if hasattr(self, 'btn_next'):
-            self.btn_next.kill()
         if hasattr(self, 'btn_start'):
             self.btn_start.kill()
         if hasattr(self, 'btn_back'):
@@ -526,24 +663,6 @@ class SinglePlayerSetupScreen(BaseScreen):
     
     def render(self):
         self.surface.fill((40, 40, 50))
-        
-        # Draw map statistics
-        if hasattr(self, 'context') and hasattr(self.context, 'selected_map'):
-            selected_map = self.context.selected_map
-            map_data = map_loader.load_map(selected_map)
-            
-            if map_data and selected_map != "default":
-                center_x = self.surface.get_width() // 2
-                
-                # Display map info
-                stats_text = f"地图: {map_data.get('name', selected_map)}"
-                stats_surf = self.small_font.render(stats_text, True, (200, 200, 200))
-                self.surface.blit(stats_surf, (center_x - 150, 390))
-                
-                wall_count = len(map_data.get('walls', []))
-                wall_text = f"障碍物数量: {wall_count}"
-                wall_surf = self.small_font.render(wall_text, True, (200, 200, 200))
-                self.surface.blit(wall_surf, (center_x - 150, 420))
 
 
 class LobbyScreen(BaseScreen):
@@ -552,75 +671,103 @@ class LobbyScreen(BaseScreen):
     def on_enter(self):
         super().on_enter()
         
-        self.surface_width = self.surface.get_width()
-        self.surface_height = self.surface.get_height()
+        w, h = self.surface.get_size()
+        margin = 24
+        col1 = min(560, max(480, int(w * 0.55)))
+        col2 = max(360, w - col1 - margin * 3)
+        card_h = h - margin * 2
+        padding = 16
+        line_h = 32
         
-        # 计算中心位置
-        center_x = self.surface_width // 2
-        
-        # 用户名输入 - 居中显示
-        label_width = 100
-        entry_width = 200
-        total_width = label_width + entry_width + 10  # 10像素间距
-        start_x = center_x - total_width // 2
+        # 左侧：房间列表卡片
+        self.left_panel = UIPanel(
+            relative_rect=pygame.Rect(margin, margin, col1, card_h),
+            manager=self.manager,
+            object_id="#lobby_left"
+        )
         
         UILabel(
-            relative_rect=pygame.Rect((start_x, 50), (label_width, 30)),
-            text="用户名:",
-            manager=self.manager
+            relative_rect=pygame.Rect(padding, padding, col1 - padding * 2, line_h),
+            text="房间列表",
+            manager=self.manager,
+            container=self.left_panel
         )
-        self.username_entry = UITextEntryLine(
-            relative_rect=pygame.Rect((start_x + label_width + 10, 50), (entry_width, 30)),
-            manager=self.manager
-        )
-        self.username_entry.set_text("Player1")
         
-        # 房间列表 - 居中显示
-        room_list_width = 500
-        room_list_height = 300
-        room_list_x = center_x - room_list_width // 2
-        
-        UILabel(
-            relative_rect=pygame.Rect((room_list_x, 100), (200, 30)),
-            text="房间列表:",
-            manager=self.manager
+        self.status_label = UILabel(
+            relative_rect=pygame.Rect(padding, padding + line_h + 6, 220, line_h),
+            text="状态: 初始化中...",
+            manager=self.manager,
+            container=self.left_panel
         )
+        
+        list_y = padding + line_h * 2 + 16
+        list_h = card_h - list_y - padding - 60
         self.room_list = UISelectionList(
-            relative_rect=pygame.Rect((room_list_x, 140), (room_list_width, room_list_height)),
+            relative_rect=pygame.Rect(padding, list_y, col1 - padding * 2, list_h),
             item_list=[], 
-            manager=self.manager
-        )
-        
-        # 按钮 - 放在房间列表右侧，与房间列表顶部对齐
-        btn_width = 150
-        btn_height = 50
-        btn_spacing = 20
-        btn_start_x = room_list_x + room_list_width + 30
-        btn_start_y = 140
-        
-        self.btn_create = UIButton(
-            relative_rect=pygame.Rect((btn_start_x, btn_start_y), (btn_width, btn_height)),
-            text='创建房间',
-            manager=self.manager
-        )
-        
-        self.btn_join = UIButton(
-            relative_rect=pygame.Rect((btn_start_x, btn_start_y + btn_height + btn_spacing), (btn_width, btn_height)),
-            text='加入房间',
-            manager=self.manager
+            manager=self.manager,
+            container=self.left_panel
         )
         
         self.btn_refresh = UIButton(
-            relative_rect=pygame.Rect((btn_start_x, btn_start_y + (btn_height + btn_spacing) * 2), (btn_width, btn_height)),
+            relative_rect=pygame.Rect(padding, card_h - padding - 44, 140, 44),
             text='刷新列表',
-            manager=self.manager
+            manager=self.manager,
+            container=self.left_panel
         )
         
-        # 返回按钮 - 放在左下角，保持原位置
+        # 右侧：操作卡片
+        right_x = margin * 2 + col1
+        self.right_panel = UIPanel(
+            relative_rect=pygame.Rect(right_x, margin, col2, card_h),
+            manager=self.manager,
+            object_id="#lobby_right"
+        )
+        
+        UILabel(
+            relative_rect=pygame.Rect(padding, padding, col2 - padding * 2, line_h),
+            text="玩家信息",
+            manager=self.manager,
+            container=self.right_panel
+        )
+        
+        UILabel(
+            relative_rect=pygame.Rect(padding, padding + line_h + 6, 80, line_h),
+            text="用户名:",
+            manager=self.manager,
+            container=self.right_panel
+        )
+        self.username_entry = UITextEntryLine(
+            relative_rect=pygame.Rect(padding + 80 + 8, padding + line_h + 6, col2 - padding * 2 - 88, line_h),
+            manager=self.manager,
+            container=self.right_panel
+        )
+        self.username_entry.set_text("Player1")
+        self.context.username = self.username_entry.get_text()
+        
+        btn_w = col2 - padding * 2
+        btn_h = 48
+        btn_y = padding + line_h * 2 + 24
+        
+        self.btn_create = UIButton(
+            relative_rect=pygame.Rect(padding, btn_y, btn_w, btn_h),
+            text='创建房间',
+            manager=self.manager,
+            container=self.right_panel
+        )
+        
+        self.btn_join = UIButton(
+            relative_rect=pygame.Rect(padding, btn_y + btn_h + 12, btn_w, btn_h),
+            text='加入房间',
+            manager=self.manager,
+            container=self.right_panel
+        )
+        
         self.btn_back = UIButton(
-            relative_rect=pygame.Rect((50, 500), (100, 50)),
+            relative_rect=pygame.Rect(padding, card_h - padding - 48, btn_w, 48),
             text='返回',
-            manager=self.manager
+            manager=self.manager,
+            container=self.right_panel
         )
         
         # Auto start client discovery
@@ -650,28 +797,58 @@ class LobbyScreen(BaseScreen):
 
     def update(self, time_delta: float):
         super().update(time_delta)
+        
+        # Initialize discovery timer if not exists
+        if not hasattr(self, 'discovery_timer'):
+            self.discovery_timer = 0
+            
+        # Initialize status update timer
+        if not hasattr(self, 'status_update_timer'):
+            self.status_update_timer = 0
+            
         # Periodic discovery broadcast
         if hasattr(self, 'network_manager') and self.network_manager.stats.role == "client":
-            if not hasattr(self, 'discovery_timer'):
-                self.discovery_timer = 0
-                
             self.discovery_timer += time_delta
-            if self.discovery_timer > 2.0:  # Broadcast every 2 seconds
+            if self.discovery_timer > 1.5:  # Broadcast every 1.5 seconds for more responsive updates
                 self.network_manager.broadcast_discovery()
                 self.discovery_timer = 0
             
-            # Update room list (only if UI is initialized)
-            if hasattr(self, 'room_list'):
-                rooms = [f"{r[1]} ({r[0]})" for r in self.network_manager.found_servers]
-                # Only update if changed to avoid flickering/resetting selection
-                # UISelectionList doesn't expose current items easily, but we can check if it matches our cache
-                # Or just set it, pygame_gui might handle it.
-                # But to be safe and efficient:
-                current_items = getattr(self, '_cached_room_list', [])
-                if rooms != current_items:
-                    print(f"[UI] Updating room list: {rooms}")
-                    self.room_list.set_item_list(rooms)
-                    self._cached_room_list = rooms
+            # Update room list and status more frequently
+            self.status_update_timer += time_delta
+            if self.status_update_timer > 0.5:  # Update UI every 0.5 seconds
+                self.status_update_timer = 0
+                
+                # Update room list (only if UI is initialized)
+                if hasattr(self, 'room_list'):
+                    # Get server info with player count if available
+                    rooms = []
+                    for server in self.network_manager.found_servers:
+                        ip, name = server
+                        # Try to get player count from network manager stats
+                        player_count = getattr(self.network_manager.stats, 'player_count', '?')
+                        rooms.append(f"{name} ({ip}) - 玩家: {player_count}")
+                    
+                    # Only update if changed to avoid flickering/resetting selection
+                    current_items = getattr(self, '_cached_room_list', [])
+                    if rooms != current_items:
+                        print(f"[UI] Updating room list: {rooms}")
+                        self.room_list.set_item_list(rooms)
+                        self._cached_room_list = rooms
+                
+                # Update connection status indicator
+                if hasattr(self, 'status_label'):
+                    if self.network_manager.stats.connected:
+                        self.status_label.set_text("状态: 已连接")
+                        self.status_label.colour = (0, 255, 0)  # Green for connected
+                    else:
+                        self.status_label.set_text("状态: 搜索中...")
+                        self.status_label.colour = (255, 255, 0)  # Yellow for searching
+                
+                # Handle status reset timer for refresh operation
+                if hasattr(self, 'status_reset_timer'):
+                    self.status_reset_timer += time_delta
+                    if self.status_reset_timer > 1.0:  # Reset after 1 second
+                        self.status_reset_timer = 0
 
     def handle_event(self, event: pygame.event.Event):
         super().handle_event(event)
@@ -690,6 +867,9 @@ class LobbyScreen(BaseScreen):
                     # Otherwise start_host() returns early because _running is True.
                     self.network_manager.stop()
                     self.network_manager.start_host()
+                # 记录本地/远程用户名，供后续显示生命值等
+                self.context.username = self.username_entry.get_text()
+                self.context.remote_username = "Player2"
                 self.context.next_state = "room"
                 self.context.is_host = True
                 self.context.game_mode = "multi"
@@ -700,23 +880,45 @@ class LobbyScreen(BaseScreen):
                 selected = getattr(self, 'selected_room', None)
                 print(f"[UI] Join clicked. Selected: {selected}")
                 if selected:
-                    # Parse IP from string "RoomName (IP)"
-                    ip = selected.split('(')[-1].strip(')')
+                    # Parse IP from string "RoomName (IP) - 玩家: ?"
+                    # Use regex to extract IP address more reliably
+                    import re
+                    ip_match = re.search(r'\((\d+\.\d+\.\d+\.\d+)\)', selected)
+                    if ip_match:
+                        ip = ip_match.group(1)
+                    else:
+                        # Fallback to original method if regex fails
+                        ip = selected.split('(')[-1].strip(')')
+                        # Remove any trailing text after the IP
+                        if ' ' in ip:
+                            ip = ip.split(' ')[0]
                     if hasattr(self, 'network_manager'):
                         # Don't call start_client again, already started in on_enter
                         if self.network_manager.connect_to_server(ip):
                             self.context.next_state = "room"
                             self.context.is_host = False
                             self.context.game_mode = "multi"
+                            self.context.username = self.username_entry.get_text()
+                            self.context.remote_username = "Player1"
                         
             elif event.ui_element == self.btn_refresh:
                 if hasattr(self, 'network_manager'):
+                    # Update status to show refreshing
+                    self.status_label.set_text("状态: 刷新中...")
+                    self.status_label.colour = (100, 150, 255)  # Blue for refreshing
+                    
                     # Just broadcast, don't restart client
                     self.network_manager.broadcast_discovery()
                     # Clear found servers to force refresh
                     self.network_manager.found_servers.clear()
                     # Also clear cache to ensure UI updates
                     self._cached_room_list = []
+                    
+                    # Reset status after a short delay
+                    if hasattr(self, 'status_reset_timer'):
+                        self.status_reset_timer = 0
+                    else:
+                        self.status_reset_timer = 0
 
             elif event.ui_element == self.btn_back:
                 if hasattr(self, 'network_manager'):
@@ -732,160 +934,197 @@ class RoomScreen(BaseScreen):
     
     def on_enter(self):
         super().on_enter()
+        w, h = self.surface.get_size()
+        margin = 24
+        col_left = 360
+        col_right = w - col_left - margin * 3
+        col_right = max(540, col_right)
+        card_h = h - margin * 2
+        padding = 16
+        line_h = 30
         
-        # 获取屏幕中心坐标
-        screen_width = self.surface.get_width()
-        screen_height = self.surface.get_height()
-        center_x = screen_width // 2
-        center_y = screen_height // 2
-        
-        # 标题 - 居中显示
-        UILabel(
-            relative_rect=pygame.Rect((center_x - 100, 50), (200, 30)),
-            text="等待玩家...",
-            manager=self.manager
-        )
-        
-        # 玩家列表 - 居中显示
-        player_list_width = 300
-        player_list_height = 100
-        self.player_list = UISelectionList(
-            relative_rect=pygame.Rect((center_x - player_list_width // 2, 100), (player_list_width, player_list_height)),
-            item_list=["Player1 (Host)"], 
-            manager=self.manager
-        )
-        
-        # Ready State Tracking
         self.local_ready = False
         self.remote_ready = False
+        self._sent_initial_ready = False
+        self._sent_name = False  # 防止重复发送昵称
         
-        # 中间区域：地图选择（居中显示，房主专用）
-        map_section_y = 250
-        
-        # Map Selection (Host Only)
-        UILabel(
-            relative_rect=pygame.Rect((center_x - 50, map_section_y), (100, 30)),
-            text="选择地图:",
-            manager=self.manager
+        # 左侧：玩家与准备
+        self.left_panel = UIPanel(
+            relative_rect=pygame.Rect(margin, margin, col_left, card_h),
+            manager=self.manager,
+            object_id="#room_left"
         )
         
-        # Load available maps
-        self._load_available_maps()
+        UILabel(
+            relative_rect=pygame.Rect(padding, padding, col_left - padding * 2, line_h),
+            text="玩家与状态",
+            manager=self.manager,
+            container=self.left_panel
+        )
         
+        self.connection_status = UILabel(
+            relative_rect=pygame.Rect(padding, padding + line_h + 6, col_left - padding * 2, line_h),
+            text="状态: 初始化中...",
+            manager=self.manager,
+            container=self.left_panel
+        )
+        
+        self.player_list = UISelectionList(
+            relative_rect=pygame.Rect(padding, padding + line_h * 2 + 16, col_left - padding * 2, 140),
+            item_list=["Player1 (Host)"], 
+            manager=self.manager,
+            container=self.left_panel
+        )
+        
+        # 准备与离开
+        self.btn_ready = UIButton(
+            relative_rect=pygame.Rect(padding, card_h - padding - 140, col_left - padding * 2, 44),
+            text='准备',
+            manager=self.manager,
+            container=self.left_panel
+        )
+        
+        self.ready_status_label = UILabel(
+            relative_rect=pygame.Rect(padding, card_h - padding - 140 + 52, col_left - padding * 2, 28),
+            text="状态: 未准备",
+            manager=self.manager,
+            container=self.left_panel
+        )
+        
+        self.btn_leave = UIButton(
+            relative_rect=pygame.Rect(padding, card_h - padding - 44, col_left - padding * 2, 44),
+            text='离开房间',
+            manager=self.manager,
+            container=self.left_panel
+        )
+        
+        # 右侧：房主设置 + 坦克选择
+        right_x = margin * 2 + col_left
+        self.right_panel = UIPanel(
+            relative_rect=pygame.Rect(right_x, margin, col_right, card_h),
+            manager=self.manager,
+            object_id="#room_right"
+        )
+        
+        UILabel(
+            relative_rect=pygame.Rect(padding, padding, col_right - padding * 2, line_h),
+            text="房间设置",
+            manager=self.manager,
+            container=self.right_panel
+        )
+        
+        # 游戏模式
+        UILabel(
+            relative_rect=pygame.Rect(padding, padding + line_h + 6, 90, line_h),
+            text="游戏模式:",
+            manager=self.manager,
+            container=self.right_panel
+        )
+        self.game_mode_dropdown = UIDropDownMenu(
+            options_list=["合作模式", "对战模式", "混战模式", "关卡模式"],
+            starting_option="合作模式",
+            relative_rect=pygame.Rect(padding + 100, padding + line_h + 6, 180, line_h),
+            manager=self.manager,
+            container=self.right_panel
+        )
+        self.context.multiplayer_game_mode = "coop"
+        if not getattr(self.context, 'is_host', False):
+            self.game_mode_dropdown.disable()
+        
+        # 关卡/地图区域
+        maps_y = padding + line_h * 2 + 20
+        UILabel(
+            relative_rect=pygame.Rect(padding, maps_y, 90, line_h),
+            text="选择地图:",
+            manager=self.manager,
+            container=self.right_panel
+        )
+        
+        self._load_available_maps()
+        list_w = int(col_right * 0.55)
+        list_h = 160
         self.map_selection_list = UISelectionList(
-            relative_rect=pygame.Rect((center_x - 150, map_section_y + 40), (300, 100)),
+            relative_rect=pygame.Rect(padding, maps_y + line_h + 8, list_w, list_h),
             item_list=self.map_display_names,
             default_selection=self.map_display_names[0],
-            manager=self.manager
+            manager=self.manager,
+            container=self.right_panel
         )
-        
-        # Initialize selected map
         self.selected_map = self.map_names[0]
         self.context.selected_map = self.selected_map
-        
-        # Disable map selection for client
         if not getattr(self.context, 'is_host', False):
             self.map_selection_list.disable()
-            
-        # Difficulty Selection (Host Only) - 放在地图选择右侧
-        UILabel(
-            relative_rect=pygame.Rect((center_x + 170, map_section_y), (100, 30)),
-            text="敌人难度:",
-            manager=self.manager
-        )
         
+        # 难度
+        UILabel(
+            relative_rect=pygame.Rect(padding + list_w + 16, maps_y, 90, line_h),
+            text="敌人难度:",
+            manager=self.manager,
+            container=self.right_panel
+        )
         from src.game_engine.ai_config import get_difficulty_names, get_difficulty_key_by_name, DEFAULT_DIFFICULTY, DIFFICULTY_CONFIGS
         self.difficulty_names = get_difficulty_names()
         default_diff_name = DIFFICULTY_CONFIGS[DEFAULT_DIFFICULTY]["name"]
-        
         self.difficulty_dropdown = UIDropDownMenu(
             options_list=self.difficulty_names,
             starting_option=default_diff_name,
-            relative_rect=pygame.Rect((center_x + 170, map_section_y + 40), (150, 30)),
-            manager=self.manager
+            relative_rect=pygame.Rect(padding + list_w + 16, maps_y + line_h + 8, 180, line_h),
+            manager=self.manager,
+            container=self.right_panel
         )
-        
-        # Initialize difficulty
         self.context.enemy_difficulty = DEFAULT_DIFFICULTY
-        
         if not getattr(self.context, 'is_host', False):
             self.difficulty_dropdown.disable()
         
-        # 下方区域：坦克选择（左右分布）
-        tank_section_y = 400
+        # 坦克选择区域
+        tanks_y = maps_y + line_h + list_h + 32
+        UILabel(
+            relative_rect=pygame.Rect(padding, tanks_y, 100, line_h),
+            text="你的坦克",
+            manager=self.manager,
+            container=self.right_panel
+        )
+        self.local_image_rect = pygame.Rect(padding, tanks_y + line_h + 6, 100, 100)
+        self.local_image_elem = None
+        self.btn_prev = UIButton(
+            relative_rect=pygame.Rect(padding, tanks_y + line_h + 6 + 110, 48, 32),
+            text='<',
+            manager=self.manager,
+            container=self.right_panel
+        )
+        self.btn_next = UIButton(
+            relative_rect=pygame.Rect(padding + 58, tanks_y + line_h + 6 + 110, 48, 32),
+            text='>',
+            manager=self.manager,
+            container=self.right_panel
+        )
+        
+        UILabel(
+            relative_rect=pygame.Rect(padding + 180, tanks_y, 100, line_h),
+            text="对手坦克",
+            manager=self.manager,
+            container=self.right_panel
+        )
+        self.remote_image_rect = pygame.Rect(padding + 180, tanks_y + line_h + 6, 100, 100)
+        self.remote_image_elem = None
         
         self.local_tank_id = 1
         self.remote_tank_id = 1
         self.context.player_tank_id = 1
         self.context.enemy_tank_id = 1
-        
-        # Local Tank (左侧)
-        UILabel(
-            relative_rect=pygame.Rect((center_x - 250, tank_section_y), (100, 30)), 
-            text="你的坦克", 
-            manager=self.manager
-        )
-        self.local_image_rect = pygame.Rect((center_x - 250, tank_section_y + 40), (100, 100))
-        self.local_image_elem = None
-        
-        self.btn_prev = UIButton(
-            relative_rect=pygame.Rect((center_x - 250, tank_section_y + 150), (45, 30)), 
-            text='<', 
-            manager=self.manager
-        )
-        self.btn_next = UIButton(
-            relative_rect=pygame.Rect((center_x - 195, tank_section_y + 150), (45, 30)), 
-            text='>', 
-            manager=self.manager
-        )
-        
-        # Remote Tank (右侧) - Display Only
-        UILabel(
-            relative_rect=pygame.Rect((center_x + 150, tank_section_y), (100, 30)), 
-            text="对手坦克", 
-            manager=self.manager
-        )
-        self.remote_image_rect = pygame.Rect((center_x + 150, tank_section_y + 40), (100, 100))
-        self.remote_image_elem = None
-        
         self._update_images()
         
-        # 控制按钮区域 - 底部居中
-        btn_width = 150
-        btn_height = 50
-        btn_spacing = 20
-        btn_y = 580  # 坦克选择下方
-        
-        self.btn_ready = UIButton(
-            relative_rect=pygame.Rect((center_x - btn_width - btn_spacing // 2, btn_y), (btn_width, btn_height)),
-            text='准备',
-            manager=self.manager
-        )
-        
-        # Ready status label
-        self.ready_status_label = UILabel(
-            relative_rect=pygame.Rect((center_x - 125, btn_y + 60), (250, 30)),
-            text="状态: 未准备",
-            manager=self.manager
-        )
-        
-        # 仅房主可见
+        # 开始游戏按钮（仅房主）
         self.btn_start = UIButton(
-            relative_rect=pygame.Rect((center_x + btn_spacing // 2, btn_y), (btn_width, btn_height)),
+            relative_rect=pygame.Rect(col_right - padding - 180, card_h - padding - 48, 180, 48),
             text='开始游戏',
-            manager=self.manager
+            manager=self.manager,
+            container=self.right_panel
         )
         if not getattr(self.context, 'is_host', False):
             self.btn_start.hide()
         else:
-            self.btn_start.disable()  # Disabled until both ready
-            
-        # 离开房间按钮 - 底部居中
-        self.btn_leave = UIButton(
-            relative_rect=pygame.Rect((center_x - 75, screen_height - 100), (150, 50)),
-            text='离开房间',
-            manager=self.manager
-        )
+            self.btn_start.disable()
 
     def _load_available_maps(self):
         """加载可用地图列表"""
@@ -927,13 +1166,13 @@ class RoomScreen(BaseScreen):
         if self.local_image_elem: self.local_image_elem.kill()
         images = resource_manager.load_tank_images('player', self.local_tank_id, 0)
         surf = pygame.transform.scale(images[0][0], (100, 100)) if images and images.get(0) else pygame.Surface((100, 100))
-        self.local_image_elem = UIImage(relative_rect=self.local_image_rect, image_surface=surf, manager=self.manager)
+        self.local_image_elem = UIImage(relative_rect=self.local_image_rect, image_surface=surf, manager=self.manager, container=self.right_panel)
         
         # Remote
         if self.remote_image_elem: self.remote_image_elem.kill()
         images = resource_manager.load_tank_images('player', self.remote_tank_id, 0)
         surf = pygame.transform.scale(images[0][0], (100, 100)) if images and images.get(0) else pygame.Surface((100, 100))
-        self.remote_image_elem = UIImage(relative_rect=self.remote_image_rect, image_surface=surf, manager=self.manager)
+        self.remote_image_elem = UIImage(relative_rect=self.remote_image_rect, image_surface=surf, manager=self.manager, container=self.right_panel)
     
     def _update_ready_status(self):
         """更新准备状态显示"""
@@ -953,32 +1192,96 @@ class RoomScreen(BaseScreen):
 
     def update(self, time_delta: float):
         super().update(time_delta)
-        # Check connection status
-        if hasattr(self, 'network_manager'):
-            if self.network_manager.stats.connected:
-                self.player_list.set_item_list(["Player1 (Host)", "Player2 (Client)"])
-            else:
-                self.player_list.set_item_list(["Player1 (Host)"])
-                # Reset remote ready if disconnected
-                if self.remote_ready:
-                    self.remote_ready = False
-                    self._update_ready_status()
-                
-            if self.context.is_host:
-                # Host: Check for lobby updates from client
-                msgs = self.network_manager.get_inputs()
-                for msg in msgs:
-                    if msg.get("type") == "lobby_update":
-                        payload = msg.get("payload")
-                        if payload and "tank_id" in payload:
-                            self.remote_tank_id = payload["tank_id"]
-                            self.context.enemy_tank_id = self.remote_tank_id
-                            self._update_images()
-                    elif msg.get("type") == "ready_state":
-                        payload = msg.get("payload")
-                        if payload is not None:
-                            self.remote_ready = payload.get("is_ready", False)
-                            self._update_ready_status()
+        
+        # Initialize update timer if not exists
+        if not hasattr(self, 'room_update_timer'):
+            self.room_update_timer = 0
+            
+        self.room_update_timer += time_delta
+        
+        # Update UI every 0.5 seconds for more responsive feel
+        # Track if we've sent initial ready state
+        if not hasattr(self, '_sent_initial_ready'):
+            self._sent_initial_ready = False
+        
+        if self.room_update_timer > 0.5:
+            self.room_update_timer = 0
+            
+            # Check connection status
+            if hasattr(self, 'network_manager'):
+                if self.network_manager.stats.connected:
+                    # 首次连接后同步昵称
+                    if not self._sent_name:
+                        player_id = 1 if self.context.is_host else 2
+                        self.network_manager.send_event("player_name", {
+                            "id": player_id,
+                            "name": self.context.username
+                        })
+                        self._sent_name = True
+
+                    # Send initial ready state if not sent yet
+                    if not self._sent_initial_ready:
+                        self.network_manager.send_ready_state(self.local_ready)
+                        self._sent_initial_ready = True
+                    
+                    # Update player list based on connection
+                    host_name = self.context.username if self.context.is_host else getattr(self.context, "remote_username", "Player1")
+                    client_name = getattr(self.context, "remote_username", "Player2") if self.context.is_host else self.context.username
+                    self.player_list.set_item_list([
+                        f"{host_name} (Host)",
+                        f"{client_name} (Client)"
+                    ])
+                    
+                    # Update connection status label if exists
+                    if hasattr(self, 'connection_status'):
+                        self.connection_status.set_text("状态: 已连接")
+                        self.connection_status.colour = (0, 255, 0)  # Green for connected
+                else:
+                    # Disconnected
+                    self.player_list.set_item_list(["Player1 (Host)"])
+                    
+                    # Reset remote ready if disconnected
+                    if self.remote_ready:
+                        self.remote_ready = False
+                        self._update_ready_status()
+                    
+                    # Reset initial ready state flag when disconnected
+                    self._sent_initial_ready = False
+                    self._sent_name = False
+                    
+                    # Update connection status label if exists
+                    if hasattr(self, 'connection_status'):
+                        self.connection_status.set_text("状态: 连接断开")
+                        self.connection_status.colour = (255, 0, 0)  # Red for disconnected
+                    
+                if self.context.is_host:
+                    # Host: Check for lobby updates from client
+                    msgs = self.network_manager.get_inputs()
+                    for msg in msgs:
+                        if msg.get("type") == "lobby_update":
+                            payload = msg.get("payload")
+                            if payload and "tank_id" in payload:
+                                self.remote_tank_id = payload["tank_id"]
+                                self.context.enemy_tank_id = self.remote_tank_id
+                                self._update_images()
+                        elif msg.get("type") == "ready_state":
+                            payload = msg.get("payload")
+                            if payload is not None:
+                                self.remote_ready = payload.get("is_ready", False)
+                                self._update_ready_status()
+                                # 主机收到客户端准备状态后，将自己的准备状态发送给客户端
+                                self.network_manager.send_ready_state(self.local_ready)
+                        elif msg.get("type") == "player_name":
+                            payload = msg.get("payload", {})
+                            if payload.get("id") == 2 and payload.get("name"):
+                                self.context.remote_username = payload["name"]
+                                # 更新玩家列表显示
+                                host_name = self.context.username
+                                client_name = self.context.remote_username
+                                self.player_list.set_item_list([
+                                    f"{host_name} (Host)",
+                                    f"{client_name} (Client)"
+                                ])
             else:
                 # Client: Check for game start and lobby updates
                 self.network_manager.get_latest_state()
@@ -1000,6 +1303,14 @@ class RoomScreen(BaseScreen):
                             else:
                                 self.context.received_map_data = None
                             
+                            # Store game mode
+                            self.context.multiplayer_game_mode = payload.get("game_mode", "coop")
+                            self.context.level_number = payload.get("level_number")
+                            
+                            print(f"[Client] 游戏模式: {self.context.multiplayer_game_mode}")
+                            if self.context.level_number:
+                                print(f"[Client] 关卡编号: {self.context.level_number}")
+                            
                             self.local_tank_id = self.context.player_tank_id
                             
                             self.context.next_state = "game"
@@ -1010,6 +1321,26 @@ class RoomScreen(BaseScreen):
                             self.remote_tank_id = payload["tank_id"]
                             self.context.enemy_tank_id = self.remote_tank_id
                             self._update_images()
+                    
+                    elif event.get("type") == "ready_state":
+                        payload = event.get("payload")
+                        if payload is not None:
+                            self.remote_ready = payload.get("is_ready", False)
+                            self._update_ready_status()
+                            # 客户端收到主机准备状态后，将自己的准备状态发送给主机
+                            self.network_manager.send_ready_state(self.local_ready)
+                    
+                    elif event.get("type") == "player_name":
+                        payload = event.get("payload", {})
+                        if payload.get("id") == 1 and payload.get("name"):
+                            self.context.remote_username = payload["name"]
+                            # 更新玩家列表显示
+                            host_name = self.context.remote_username
+                            client_name = self.context.username
+                            self.player_list.set_item_list([
+                                f"{host_name} (Host)",
+                                f"{client_name} (Client)"
+                            ])
                     
                     elif event.get("type") == "map_selection":
                         payload = event.get("payload")
@@ -1063,6 +1394,35 @@ class RoomScreen(BaseScreen):
                                 )
                                 self.difficulty_dropdown.disable()
                     
+                    elif event.get("type") == "game_mode_update":
+                        payload = event.get("payload")
+                        if payload and "game_mode" in payload:
+                            game_mode = payload["game_mode"]
+                            self.context.multiplayer_game_mode = game_mode
+                            # Update UI
+                            game_mode_map = {
+                                "coop": "合作模式",
+                                "pvp": "对战模式",
+                                "mixed": "混战模式",
+                                "level": "关卡模式"
+                            }
+                            game_mode_name = game_mode_map.get(game_mode, "合作模式")
+                            
+                            # Update dropdown selection
+                            rect = self.game_mode_dropdown.relative_rect
+                            manager = self.game_mode_dropdown.ui_manager
+                            self.game_mode_dropdown.kill()
+                            self.game_mode_dropdown = UIDropDownMenu(
+                                options_list=["合作模式", "对战模式", "混战模式", "关卡模式"],
+                                starting_option=game_mode_name,
+                                relative_rect=rect,
+                                manager=manager
+                            )
+                            self.game_mode_dropdown.disable()
+                            
+                            # Update maps for this game mode
+                            self._update_maps_for_game_mode(game_mode)
+                    
                     elif event.get("type") == "ready_state":
                         payload = event.get("payload")
                         if payload is not None:
@@ -1081,14 +1441,34 @@ class RoomScreen(BaseScreen):
                 if hasattr(self, 'network_manager'):
                     # Load map data to send to client
                     map_data = None
-                    if self.selected_map != "default":
-                        from src.utils.map_loader import map_loader
-                        map_data = map_loader.load_map(self.selected_map)
-                        if map_data:
-                            print(f"[Host] 发送地图数据: {self.selected_map}")
+                    from src.utils.map_loader import map_loader
+                    # 始终尝试加载地图数据（包括默认地图），便于客户端缺图时使用
+                    map_data = map_loader.load_map(self.selected_map)
+                    if map_data:
+                        print(f"[Host] 发送地图数据: {self.selected_map}")
+                    else:
+                        print(f"[Host] 未找到地图文件 {self.selected_map}，将发送空地图数据")
                     
-                    # Send Game Start with tank IDs, map name, and map data
-                    self.network_manager.send_game_start(self.local_tank_id, self.remote_tank_id, self.selected_map, map_data)
+                    # Get game mode
+                    game_mode = getattr(self.context, 'multiplayer_game_mode', 'coop')
+                    
+                    # For level mode, extract level number
+                    level_number = None
+                    if game_mode == "level" and self.selected_map.startswith("level_"):
+                        try:
+                            level_number = int(self.selected_map.split("_")[1])
+                        except (IndexError, ValueError):
+                            pass
+                    
+                    # Send Game Start with tank IDs, map name, map data, and game mode
+                    self.network_manager.send_game_start(
+                        self.local_tank_id, 
+                        self.remote_tank_id, 
+                        self.selected_map, 
+                        map_data,
+                        game_mode=game_mode,
+                        level_number=level_number
+                    )
                 
                 self.context.player_tank_id = self.local_tank_id
                 self.context.enemy_tank_id = self.remote_tank_id
@@ -1150,6 +1530,137 @@ class RoomScreen(BaseScreen):
                     # Broadcast to client
                     if hasattr(self, 'network_manager'):
                         self.network_manager.send_event("difficulty_update", {"difficulty": selected_difficulty})
+            
+            elif hasattr(self, 'game_mode_dropdown') and event.ui_element == self.game_mode_dropdown:
+                if self.context.is_host:
+                    # Fallback to selected_option if event.text is None
+                    text = event.text if event.text is not None else self.game_mode_dropdown.selected_option
+                    
+                    if text is None or text == "None":
+                        text = "合作模式"
+                    
+                    # Map UI text to game mode
+                    game_mode_map = {
+                        "合作模式": "coop",
+                        "对战模式": "pvp",
+                        "混战模式": "mixed",
+                        "关卡模式": "level"
+                    }
+                    
+                    selected_game_mode = game_mode_map.get(text, "coop")
+                    self.context.multiplayer_game_mode = selected_game_mode
+                    print(f"[Host] 游戏模式选择: {text} -> {selected_game_mode}")
+                    
+                    # 根据游戏模式更新地图列表
+                    self._update_maps_for_game_mode(selected_game_mode)
+                    
+                    # Broadcast to client
+                    if hasattr(self, 'network_manager'):
+                        self.network_manager.send_event("game_mode_update", {"game_mode": selected_game_mode})
+
+    def _update_maps_for_game_mode(self, game_mode):
+        """根据游戏模式更新地图列表"""
+        if game_mode == "level":
+            # 关卡模式：加载联机关卡地图
+            self._load_multiplayer_level_maps()
+        else:
+            # 其他模式：加载普通地图
+            self._load_available_maps()
+        
+        # 更新地图选择列表
+        if hasattr(self, 'map_selection_list'):
+            # 更新列表
+            self.map_selection_list.set_item_list(self.map_display_names)
+            
+            # 设置默认选择（如果列表不为空）
+            if self.map_display_names:
+                self.selected_map = self.map_names[0]
+                self.context.selected_map = self.selected_map
+    
+    def _load_multiplayer_level_maps(self):
+        """加载联机关卡地图列表"""
+        from src.utils.multiplayer_level_progress import get_available_multiplayer_levels
+        from src.utils.multiplayer_map_generator import multiplayer_map_generator
+        
+        available_levels = get_available_multiplayer_levels()
+        
+        self.map_names = []
+        self.map_display_names = []
+        self.map_name_mapping = {}
+        
+        for level_info in available_levels:
+            if level_info["unlocked"]:
+                level_num = level_info["level"]
+                map_name = f"level_{level_num}"
+                display_name = f"关卡 {level_num}"
+                
+                # 检查地图文件是否存在，不存在则生成
+                if not multiplayer_map_generator.load_multiplayer_map("level", map_name):
+                    multiplayer_map_generator.generate_level_map(level_num)
+                
+                self.map_names.append(map_name)
+                self.map_display_names.append(display_name)
+                self.map_name_mapping[display_name] = map_name
+    
+    def _load_available_maps(self):
+        """加载可用地图列表"""
+        from src.utils.map_loader import map_loader
+        
+        available_maps = map_loader.get_available_maps()
+        
+        # Create map display names with metadata and mapping
+        self.map_names = []
+        self.map_display_names = []
+        # 添加映射字典，直接存储显示名称到地图名称的映射
+        self.map_name_mapping = {}
+        
+        # 处理默认地图
+        self.map_names.append("default")
+        self.map_display_names.append("默认地图")
+        self.map_name_mapping["默认地图"] = "default"
+        
+        # 处理其他地图
+        for map_info in available_maps:
+            if isinstance(map_info, dict) and "filename" in map_info:
+                map_name = map_info["filename"]
+                self.map_names.append(map_name)
+                
+                try:
+                    # Try to get map details
+                    map_data = map_loader.load_map(map_name)
+                    if map_data and 'name' in map_data:
+                        # Add map stats to display name
+                        wall_count = len(map_data.get('walls', []))
+                        display_name = f"{map_data['name']} ({wall_count} 个障碍物)"
+                    else:
+                        display_name = map_info.get("name", map_name.replace(".json", ""))
+                except Exception as e:
+                    print(f"加载地图 {map_name} 时出错: {e}")
+                    display_name = map_info.get("name", map_name.replace(".json", ""))
+                
+                self.map_display_names.append(display_name)
+                self.map_name_mapping[display_name] = map_name
+            elif isinstance(map_info, str):
+                # 兼容旧格式
+                map_name = map_info
+                self.map_names.append(map_name)
+                
+                if map_name == "default":
+                    display_name = "默认地图"
+                else:
+                    try:
+                        map_data = map_loader.load_map(map_name)
+                        if map_data and 'name' in map_data:
+                            wall_count = len(map_data.get('walls', []))
+                            display_name = f"{map_data['name']} ({wall_count} 个障碍物)"
+                        else:
+                            display_name = map_name.replace(".json", "")
+                    except Exception as e:
+                        print(f"加载地图 {map_name} 时出错: {e}")
+                        display_name = map_name.replace(".json", "")
+                
+                self.map_display_names.append(display_name)
+                self.map_name_mapping[display_name] = map_name
 
     def render(self):
         self.surface.fill((50, 30, 30))
@@ -1302,10 +1813,14 @@ class LevelSelectScreen(BaseScreen):
                 # 获取按钮位置
                 btn_rect = btn.get_relative_rect()
                 # 绘制锁定图标
-                lock_text = self.small_font.render("🔒", True, (255, 0, 0))
-                lock_x = btn_rect.x + btn_rect.width // 2 - lock_text.get_width() // 2
-                lock_y = btn_rect.y + btn_rect.height // 2 - lock_text.get_height() // 2
-                self.surface.blit(lock_text, (lock_x, lock_y))
+                try:
+                    lock_text = self.small_font.render("🔒", True, (255, 0, 0))
+                except Exception:
+                    lock_text = self.small_font.render("锁", True, (255, 0, 0))
+                if lock_text.get_width() > 0 and lock_text.get_height() > 0:
+                    lock_x = btn_rect.x + btn_rect.width // 2 - lock_text.get_width() // 2
+                    lock_y = btn_rect.y + btn_rect.height // 2 - lock_text.get_height() // 2
+                    self.surface.blit(lock_text, (lock_x, lock_y))
         
         # 提示信息
         if self.selected_level:

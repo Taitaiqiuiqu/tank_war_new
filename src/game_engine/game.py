@@ -843,6 +843,16 @@ class GameEngine:
         self.current_level = 1
         self.max_level = 10  # 默认10关
         self.game_won = False
+        
+        # 联机关卡模式特殊属性
+        # 默认为 single，避免单机模式被误判为联机模式导致关卡不解锁
+        self.multiplayer_game_mode = "single"  # 当前联机/关卡模式
+        self.level_number = None  # 当前关卡编号
+        self.time_limit = None  # 时间限制（秒）
+        self.time_remaining = None  # 剩余时间
+        self.score_target = None  # 目标得分
+        self.current_score = 0  # 当前得分
+        self.level_start_time = None  # 关卡开始时间
 
     def resize_window(self, width, height):
         """调整窗口大小
@@ -855,16 +865,13 @@ class GameEngine:
         self.screen_width = width
         self.screen_height = height
         self.screen = self.window_manager.game_surface
-        # 游戏世界保持固定尺寸（28列*21行）
-        grid_size = 50
-        game_world_width = 28 * grid_size  # 28列
-        game_world_height = 21 * grid_size  # 21行
-        self.game_world = GameWorld(game_world_width, game_world_height)
-        self.state_manager.attach_world(self.game_world)
-        # 重新初始化屏幕管理器以适应新的尺寸
-        self.screen_manager = ScreenManager(self.screen, self.network_manager)
-        # 将GameEngine实例传递给ScreenManager
-        self.screen_manager.game_engine = self
+        
+        # 通知ScreenManager窗口大小已改变，但不重新创建对象
+        if self.screen_manager:
+            self.screen_manager.notify_window_resized(width, height)
+            
+        # 更新渲染表面，但不重新创建游戏世界
+        self.update_render_surface()
         
     def restore_window(self):
         """恢复窗口到原始尺寸"""
@@ -917,6 +924,9 @@ class GameEngine:
         self.game_difficulty = getattr(self.screen_manager.context, 'enemy_difficulty', 'normal')
         print(f"[Game] 单人模式难度已锁定: {self.game_difficulty}")
         
+        # 标记当前为单机模式，确保结算逻辑走单机分支
+        self.multiplayer_game_mode = "single"
+
         # Try to load custom map or generate level map
         map_data = None
         if map_name != "default":
@@ -1027,8 +1037,16 @@ class GameEngine:
             base_y = self.screen_height - 100  # 底部
             self.game_world.spawn_wall(base_x, base_y, Wall.BASE)
 
-    def setup_multiplayer_world(self, p1_tank_id, p2_tank_id, map_name="default"):
-        """初始化联机模式对象"""
+    def setup_multiplayer_world(self, p1_tank_id, p2_tank_id, map_name="default", game_mode="coop", level_number=None):
+        """初始化联机模式对象
+        
+        Args:
+            p1_tank_id: 玩家1坦克ID
+            p2_tank_id: 玩家2坦克ID
+            map_name: 地图名称
+            game_mode: 游戏模式 ("coop"合作, "pvp"对战, "mixed"混战, "level"关卡)
+            level_number: 关卡编号（仅关卡模式使用）
+        """
         self.game_world.reset()
         self._movement_stack.clear()
         self.enemy_controllers.clear()  # 清除旧的控制器
@@ -1042,14 +1060,147 @@ class GameEngine:
         self.game_difficulty = getattr(self.screen_manager.context, 'enemy_difficulty', 'normal')
         print(f"[Game] 联机模式难度已锁定: {self.game_difficulty}")
         
+        # Store game mode and level for later use
+        self.multiplayer_game_mode = game_mode
+        self.level_number = level_number
+        print(f"[Game] 游戏模式: {game_mode}, 关卡编号: {level_number}")
+        
+        # 根据游戏模式初始化世界
+        if game_mode == "level":
+            self._setup_level_mode(p1_tank_id, p2_tank_id, map_name, level_number)
+        elif game_mode == "pvp":
+            self._setup_pvp_mode(p1_tank_id, p2_tank_id, map_name)
+        elif game_mode == "mixed":
+            self._setup_mixed_mode(p1_tank_id, p2_tank_id, map_name)
+        else:  # coop (default)
+            self._setup_coop_mode(p1_tank_id, p2_tank_id, map_name)
+    
+    def _setup_coop_mode(self, p1_tank_id, p2_tank_id, map_name):
+        """设置合作模式"""
+        self._load_map_and_setup_players(p1_tank_id, p2_tank_id, map_name)
+        
+        # 设置GameWorld的游戏模式属性
+        self.game_world.game_mode = "coop"
+        
+        # 生成敌人
+        enemy_id = self.next_enemy_id
+        self.next_enemy_id += 1
+        self.game_world.spawn_tank("enemy", tank_id=enemy_id, position=self.enemy_spawn)
+        self.enemy_controllers.append(EnemyAIController(enemy_id, self.game_world, difficulty=self.game_difficulty))
+    
+    def _setup_pvp_mode(self, p1_tank_id, p2_tank_id, map_name):
+        """设置对战模式"""
+        self._load_map_and_setup_players(p1_tank_id, p2_tank_id, map_name)
+        
+        # 设置GameWorld的游戏模式属性
+        self.game_world.game_mode = "pvp"
+        
+        # PvP模式不生成敌人，玩家直接对战
+        print("[Game] PvP模式: 玩家对战，不生成敌人")
+    
+    def _setup_mixed_mode(self, p1_tank_id, p2_tank_id, map_name):
+        """设置混战模式"""
+        self._load_map_and_setup_players(p1_tank_id, p2_tank_id, map_name)
+        
+        # 设置GameWorld的游戏模式属性
+        self.game_world.game_mode = "mixed"
+        
+        # 生成更多敌人，玩家既要合作又要竞争
+        enemy_count = 3  # 混战模式生成更多敌人
+        for i in range(enemy_count):
+            enemy_id = self.next_enemy_id
+            self.next_enemy_id += 1
+            # 稍微分散敌人位置
+            enemy_pos = (self.enemy_spawn[0] + i * 50, self.enemy_spawn[1])
+            self.game_world.spawn_tank("enemy", tank_id=enemy_id, position=enemy_pos)
+            self.enemy_controllers.append(EnemyAIController(enemy_id, self.game_world, difficulty=self.game_difficulty))
+        
+        print(f"[Game] 混战模式: 生成了{enemy_count}个敌人")
+    
+    def _setup_level_mode(self, p1_tank_id, p2_tank_id, map_name, level_number):
+        """设置关卡模式"""
+        # 加载关卡地图
+        if level_number:
+            from src.utils.multiplayer_level_progress import get_multiplayer_level_config
+            from src.utils.multiplayer_map_generator import multiplayer_map_generator
+            
+            level_config = get_multiplayer_level_config(level_number)
+            if level_config:
+                # 尝试加载关卡地图，如果不存在则生成
+                level_map_name = f"level_{level_number}"
+                map_data = map_loader.load_map(level_map_name, config.GRID_SIZE)
+                
+                if not map_data:
+                    # 地图不存在，生成新地图
+                    print(f"[Game] 关卡{level_number}地图不存在，生成新地图")
+                    map_data = multiplayer_map_generator.generate_level_map(level_number)
+                
+                # 使用关卡配置和地图数据
+                self._load_map_and_setup_players(p1_tank_id, p2_tank_id, level_map_name, level_config, map_data)
+                
+                # 根据关卡配置生成敌人
+                enemy_count = level_config.get('enemy_count', 1)
+                enemy_types = level_config.get('enemy_types', ['enemy'])
+                
+                for i in range(enemy_count):
+                    enemy_id = self.next_enemy_id
+                    self.next_enemy_id += 1
+                    enemy_pos = (self.enemy_spawn[0] + i * 50, self.enemy_spawn[1])
+                    enemy_type = enemy_types[i % len(enemy_types)]
+                    self.game_world.spawn_tank(enemy_type, tank_id=enemy_id, position=enemy_pos)
+                    
+                    # 根据关卡配置设置敌人难度
+                    enemy_difficulty = level_config.get('enemy_difficulty', self.game_difficulty)
+                    self.enemy_controllers.append(EnemyAIController(enemy_id, self.game_world, difficulty=enemy_difficulty))
+                
+                print(f"[Game] 关卡模式: 关卡{level_number}, 敌人数量{enemy_count}, 敌人类型{enemy_types}")
+                
+                # 设置关卡特殊条件
+                if level_config.get('time_limit'):
+                    # 实现时间限制功能
+                    self.time_limit = level_config['time_limit']
+                    self.time_remaining = self.time_limit
+                    self.level_start_time = pygame.time.get_ticks()  # 记录关卡开始时间
+                    print(f"[Game] 关卡{level_number}有时间限制: {self.time_limit}秒")
+                
+                if level_config.get('score_target'):
+                    # 实现目标得分功能
+                    self.score_target = level_config['score_target']
+                    self.current_score = 0  # 重置当前得分
+                    print(f"[Game] 关卡{level_number}有目标得分: {self.score_target}")
+                
+                # 设置GameWorld的游戏模式属性
+                self.game_world.game_mode = "level"
+                self.game_world.level_number = level_number
+                self.game_world.time_limit = self.time_limit
+                self.game_world.score_target = self.score_target
+            else:
+                # 回退到普通合作模式
+                print(f"[Game] 关卡{level_number}配置未找到，回退到合作模式")
+                self._setup_coop_mode(p1_tank_id, p2_tank_id, map_name)
+        else:
+            # 回退到普通合作模式
+            print("[Game] 未指定关卡编号，回退到合作模式")
+            self._setup_coop_mode(p1_tank_id, p2_tank_id, map_name)
+    
+    def _load_map_and_setup_players(self, p1_tank_id, p2_tank_id, map_name, level_config=None, preloaded_map_data=None):
+        """加载地图并设置玩家（通用方法）"""
+        grid_size = config.GRID_SIZE
+        
         # Load Map
         map_data = None
         
-        # Priority 1: Use received map data from host (for client)
-        if hasattr(self.screen_manager.context, 'received_map_data') and self.screen_manager.context.received_map_data:
+        # Priority 1: Use preloaded map data (for level mode)
+        if preloaded_map_data:
+            map_data = preloaded_map_data
+            print(f"使用预加载的地图数据: {map_data.get('name', map_name)}")
+        # Priority 2: Use received map data from host (for client)
+        elif hasattr(self.screen_manager.context, 'received_map_data') and self.screen_manager.context.received_map_data:
             map_data = self.screen_manager.context.received_map_data
             print(f"使用接收的地图数据: {map_data.get('name', map_name)}")
-        # Priority 2: Load from local file
+            # Clear the received map data to avoid reusing it
+            self.screen_manager.context.received_map_data = None
+        # Priority 3: Load from local file
         elif map_name != "default":
             map_data = map_loader.load_map(map_name, config.GRID_SIZE)
             if map_data:
@@ -1093,6 +1244,17 @@ class GameEngine:
             p2_spawn = (p2_spawn[0] + offset_x, p2_spawn[1] + offset_y)
             enemy_spawn = (enemy_spawn[0] + offset_x, enemy_spawn[1] + offset_y)
                 
+        # Store spawn points for use in mode-specific setup
+        self.p1_spawn = p1_spawn
+        self.p2_spawn = p2_spawn
+        self.enemy_spawn = enemy_spawn
+        self.offset_x = offset_x
+        self.offset_y = offset_y
+        self.map_data = map_data
+        
+        # Set game mode in game world
+        self.game_world.game_mode = self.multiplayer_game_mode
+        
         # Determine which tank is local player
         is_host = self.network_manager.stats.role == "host"
         
@@ -1109,13 +1271,7 @@ class GameEngine:
             self.player_tank = p2
             self.local_player_id = 2
         
-        # Enemy Spawn
-        enemy_id = self.next_enemy_id
-        self.next_enemy_id += 1
-        self.game_world.spawn_tank("enemy", tank_id=enemy_id, position=enemy_spawn)
-        self.enemy_controllers.append(EnemyAIController(enemy_id, self.game_world, difficulty=self.game_difficulty))
-        
-        # Map Walls
+        # Load map walls
         if map_data:
             walls = map_data.get('walls', [])
             for wall in walls:
@@ -1254,7 +1410,29 @@ class GameEngine:
                 
                 # 2. Client-Side Prediction: Update local player tank
                 if self.player_tank and self.player_tank.active:
-                    self.player_tank.update()  # Run local physics for immediate response
+                    # Store previous position for error calculation
+                    prev_x, prev_y = self.player_tank.x, self.player_tank.y
+                    
+                    # Apply movement based on current input state
+                    if self._movement_stack:
+                        # Get current movement direction
+                        current_dir = self._movement_stack[-1]
+                        if current_dir != -1:
+                            # Apply movement with same physics as server
+                            self.player_tank.move(current_dir)
+                        else:
+                            self.player_tank.stop()
+                    else:
+                        self.player_tank.stop()
+                    
+                    # Update tank physics (position, collision, etc.)
+                    self.player_tank.update()
+                    
+                    # Store prediction for later reconciliation
+                    if not hasattr(self, '_client_prediction'):
+                        self._client_prediction = {}
+                    self._client_prediction['last_pos'] = (prev_x, prev_y)
+                    self._client_prediction['current_pos'] = (self.player_tank.x, self.player_tank.y)
                 
                 # 2.5. Update bullets and explosions (for visual effects)
                 # Bullets need to move and check collisions
@@ -1278,17 +1456,22 @@ class GameEngine:
                         # Calculate prediction error
                         error = ((server_x - local_x)**2 + (server_y - local_y)**2)**0.5
                         
-                        if error > 5:  # Threshold for correction
-                            # If error is HUGE, it's a teleport/respawn that state_manager missed (or lag)
-                            # But state_manager should handle respawns now.
-                            # Still, if error is very large, snap immediately.
-                            if error > 50:
+                        # Only correct if error is significant to reduce jitter
+                        if error > 2:  # Reduced threshold for more responsive correction
+                            # If error is HUGE, it's a teleport/respawn
+                            if error > 30:  # Reduced threshold for teleport detection
                                 self.player_tank.x = server_x
                                 self.player_tank.y = server_y
                                 self.player_tank.rect.topleft = (server_x, server_y)
+                                # Reset velocity to prevent continued drift
+                                if hasattr(self.player_tank, 'vx'):
+                                    self.player_tank.vx = 0
+                                if hasattr(self.player_tank, 'vy'):
+                                    self.player_tank.vy = 0
                             else:
-                                # Smooth correction using lerp
-                                alpha = 0.3  # Correction strength
+                                # Adaptive correction based on error magnitude
+                                # Larger errors get stronger correction
+                                alpha = min(0.5, max(0.1, error / 20))
                                 self.player_tank.x = local_x + (server_x - local_x) * alpha
                                 self.player_tank.y = local_y + (server_y - local_y) * alpha
                                 self.player_tank.rect.topleft = (self.player_tank.x, self.player_tank.y)
@@ -1325,8 +1508,14 @@ class GameEngine:
                             
                 # 2. Update Physics - 只有在游戏未结束时才更新
                 if self.current_state == "game" and not self.game_world.game_over:
+                    # 应用本地主机的移动输入
+                    self._apply_player_direction()
                     self._update_enemy_ai()
                     self.game_world.update()
+                    
+                    # 更新关卡模式特殊条件
+                    if self.multiplayer_game_mode == "level":
+                        self._update_level_conditions()
                     
                     # 检查游戏是否结束
                     if self._check_game_over():
@@ -1336,6 +1525,12 @@ class GameEngine:
                         self.screen_manager.context.game_won = self.game_world.winner == "player"
                         # 通知屏幕管理器切换到游戏结束屏幕
                         self.screen_manager.set_state("game_over")
+                        # 向客户端发送最终状态，避免客户端卡在旧画面
+                        try:
+                            final_state = self.state_manager.encode_state()
+                            self.network_manager.send_state(final_state)
+                        except Exception as e:
+                            print(f"[Game] Failed to send final state: {e}")
                         # 不要立即重置游戏世界，等回到主菜单时再重置
                     else:
                         # 3. Send State - 只有游戏未结束时才发送状态
@@ -1352,6 +1547,10 @@ class GameEngine:
                 
                 # 然后更新游戏世界（处理物理和碰撞）
                 self.game_world.update()
+                
+                # 更新关卡模式特殊条件
+                if self.multiplayer_game_mode == "level":
+                    self._update_level_conditions()
                 
                 # 检查游戏是否结束
                 if self._check_game_over():
@@ -1391,8 +1590,12 @@ class GameEngine:
                     
                     # Map Name from context
                     selected_map = getattr(self.screen_manager.context, 'selected_map', 'default')
+                    
+                    # Get game mode and level number
+                    game_mode = getattr(self.screen_manager.context, 'multiplayer_game_mode', 'coop')
+                    level_number = getattr(self.screen_manager.context, 'level_number', None)
                         
-                    self.setup_multiplayer_world(p1_skin, p2_skin, selected_map)
+                    self.setup_multiplayer_world(p1_skin, p2_skin, selected_map, game_mode, level_number)
                     
                     # Set player IDs for state manager
                     if self.network_manager.stats.role == "host":
@@ -1503,79 +1706,143 @@ class GameEngine:
         left_margin = x_offset // 2  # 左侧黑边的中间位置
         right_margin = x_offset + scaled_width + (x_offset // 2)  # 右侧黑边的中间位置
         
-        # 玩家生命值信息
-        player_lives = 0
-        enemy_lives = 0
+        # 统计玩家生命值（按坦克ID区分），并读取自定义昵称
+        lives_p1 = self.game_world.tank_lives.get(1, 0)
+        lives_p2 = self.game_world.tank_lives.get(2, 0)
+        name_p1 = getattr(self.screen_manager.context, "username", "玩家1")
+        name_p2 = getattr(self.screen_manager.context, "remote_username", "玩家2")
         
-        # 统计玩家和敌人的剩余生命值
-        for tank_id, lives in self.game_world.tank_lives.items():
-            if tank_id in self.game_world.tank_info:
-                tank_type = self.game_world.tank_info[tank_id].get('type', '')
-                if tank_type == 'player':
-                    player_lives += lives
-                elif tank_type == 'enemy':
-                    enemy_lives += lives
+        # 左侧显示玩家1
+        p1_text = f"{name_p1}"
+        p1_lives_text = f"{lives_p1}"
         
-        # 绘制玩家生命值显示（左侧）
-        player_text = f"玩家生命"
-        player_lives_text = f"{player_lives}"
-        
-        # 绘制玩家标题
-        player_title_surface = self.lives_font.render(player_text, True, (0, 255, 0))
-        player_title_rect = player_title_surface.get_rect(
+        p1_title_surface = self.lives_font.render(p1_text, True, (0, 255, 0))
+        p1_title_rect = p1_title_surface.get_rect(
             center=(left_margin, scaled_height // 4)
         )
-        self.screen.blit(player_title_surface, player_title_rect)
+        self.screen.blit(p1_title_surface, p1_title_rect)
         
-        # 绘制玩家生命值
-        player_lives_surface = self.lives_font.render(player_lives_text, True, (255, 255, 0))
-        player_lives_rect = player_lives_surface.get_rect(
+        p1_lives_surface = self.lives_font.render(p1_lives_text, True, (255, 255, 0))
+        p1_lives_rect = p1_lives_surface.get_rect(
             center=(left_margin, scaled_height // 4 + 30)
         )
-        self.screen.blit(player_lives_surface, player_lives_rect)
+        self.screen.blit(p1_lives_surface, p1_lives_rect)
         
-        # 绘制敌人生命值显示（右侧）
-        enemy_text = f"敌人生命"
-        enemy_lives_text = f"{enemy_lives}"
+        # 右侧显示玩家2
+        p2_text = f"{name_p2}"
+        p2_lives_text = f"{lives_p2}"
         
-        # 绘制敌人标题
-        enemy_title_surface = self.lives_font.render(enemy_text, True, (255, 0, 0))
-        enemy_title_rect = enemy_title_surface.get_rect(
+        p2_title_surface = self.lives_font.render(p2_text, True, (0, 200, 255))
+        p2_title_rect = p2_title_surface.get_rect(
             center=(right_margin, scaled_height // 4)
         )
-        self.screen.blit(enemy_title_surface, enemy_title_rect)
+        self.screen.blit(p2_title_surface, p2_title_rect)
         
-        # 绘制敌人生命值
-        enemy_lives_surface = self.lives_font.render(enemy_lives_text, True, (255, 255, 0))
-        enemy_lives_rect = enemy_lives_surface.get_rect(
+        p2_lives_surface = self.lives_font.render(p2_lives_text, True, (255, 255, 0))
+        p2_lives_rect = p2_lives_surface.get_rect(
             center=(right_margin, scaled_height // 4 + 30)
         )
-        self.screen.blit(enemy_lives_surface, enemy_lives_rect)
+        self.screen.blit(p2_lives_surface, p2_lives_rect)
+
+        # 混战模式显示比分（仅 mixed 模式）
+        if getattr(self.game_world, "game_mode", "") == "mixed":
+            score_p1 = self.game_world.player_scores.get("player1", 0)
+            score_p2 = self.game_world.player_scores.get("player2", 0)
+            
+            score_font = self.lives_small_font
+            
+            p1_score_surface = score_font.render(f"得分: {score_p1}", True, (0, 255, 0))
+            p1_score_rect = p1_score_surface.get_rect(
+                center=(left_margin, scaled_height // 4 + 60)
+            )
+            self.screen.blit(p1_score_surface, p1_score_rect)
+            
+            p2_score_surface = score_font.render(f"得分: {score_p2}", True, (0, 200, 255))
+            p2_score_rect = p2_score_surface.get_rect(
+                center=(right_margin, scaled_height // 4 + 60)
+            )
+            self.screen.blit(p2_score_surface, p2_score_rect)
     
     def _check_game_over(self) -> bool:
         """检查游戏是否结束"""
         if self.game_world.game_over:
-            if self.game_world.winner == "player":
-                # 玩家获胜，解锁下一关卡
-                from src.utils.level_progress import unlock_next_level
-                unlock_next_level(self.current_level)
-                
-                # 玩家获胜，进入下一关卡
-                if self.current_level < self.max_level:
-                    # 准备进入下一关卡
-                    print(f"[Game] 第 {self.current_level} 关完成！准备进入第 {self.current_level + 1} 关...")
-                    self._prepare_next_level()
-                    return False  # 游戏未结束，继续进行下一关卡
-                else:
-                    # 通关所有关卡
-                    print(f"[Game] 恭喜！您已通关所有 {self.max_level} 关！")
-                    self.game_won = True
-                    return True
+            # 处理不同游戏模式的游戏结束逻辑
+            if getattr(self, "multiplayer_game_mode", "single") not in (None, "single"):
+                # 联机或其他模式
+                return self._handle_multiplayer_game_over()
             else:
-                # 玩家失败，游戏结束
-                print(f"[Game] 第 {self.current_level} 关失败！游戏结束。")
-                return True
+                # 单机模式
+                return self._handle_single_player_game_over()
         return False
+    
+    def _handle_single_player_game_over(self) -> bool:
+        """处理单机模式的游戏结束逻辑"""
+        if self.game_world.winner == "player":
+            # 玩家获胜，解锁下一关卡
+            from src.utils.level_progress import unlock_next_level
+            unlock_next_level(self.current_level)
+
+            # 准备“下一关”按钮用的上下文数据（仅关卡模式生效）
+            ctx = getattr(self, "screen_manager", None).context if getattr(self, "screen_manager", None) else None
+            if ctx:
+                next_level = self.current_level + 1
+                ctx.next_level = next_level if next_level <= self.max_level else None
+
+            # 结束本局，交给结算界面决定去向
+            if self.current_level < self.max_level:
+                print(f"[Game] 第 {self.current_level} 关完成！可选择进入第 {self.current_level + 1} 关。")
+            else:
+                print(f"[Game] 恭喜！您已通关所有 {self.max_level} 关！")
+            self.game_won = True
+            return True
+        else:
+            # 玩家失败，游戏结束
+            ctx = getattr(self, "screen_manager", None).context if getattr(self, "screen_manager", None) else None
+            if ctx:
+                ctx.next_level = None
+            print(f"[Game] 第 {self.current_level} 关失败！游戏结束。")
+            return True
+    
+    def _handle_multiplayer_game_over(self) -> bool:
+        """处理联机模式的游戏结束逻辑"""
+        winner = self.game_world.winner
+        
+        if self.multiplayer_game_mode == "level":
+            # 关卡模式：处理关卡进度
+            if winner == "player":
+                # 玩家获胜，解锁下一联机关卡
+                from src.utils.multiplayer_level_progress import complete_multiplayer_level
+                complete_multiplayer_level(self.level_number)
+                print(f"[Game] 联机关卡 {self.level_number} 完成！")
+            else:
+                print(f"[Game] 联机关卡 {self.level_number} 失败！")
+        elif self.multiplayer_game_mode == "pvp":
+            # 对战模式：显示胜负结果
+            if winner == "player1":
+                print("[Game] 对战模式：玩家1获胜！")
+            elif winner == "player2":
+                print("[Game] 对战模式：玩家2获胜！")
+            else:
+                print("[Game] 对战模式：平局！")
+        elif self.multiplayer_game_mode == "mixed":
+            # 混战模式：显示胜负结果
+            if winner == "player1":
+                print("[Game] 混战模式：玩家1获胜！")
+            elif winner == "player2":
+                print("[Game] 混战模式：玩家2获胜！")
+            elif winner == "draw":
+                print("[Game] 混战模式：平局！")
+            else:
+                print("[Game] 混战模式：挑战失败！")
+        else:  # coop
+            # 合作模式：显示胜负结果
+            if winner == "player":
+                print("[Game] 合作模式：挑战成功！")
+            else:
+                print("[Game] 合作模式：挑战失败！")
+        
+        # 联机模式下，游戏结束就是结束
+        return True
     
     def _prepare_next_level(self):
         """准备进入下一关卡"""
@@ -1594,7 +1861,12 @@ class GameEngine:
             p1_skin = getattr(self.screen_manager.context, 'p1_skin', 1)
             p2_skin = getattr(self.screen_manager.context, 'p2_skin', 2)
             selected_map = getattr(self.screen_manager.context, 'selected_map', 'default')
-            self.setup_multiplayer_world(p1_skin, p2_skin, selected_map)
+            
+            # Get game mode and level number
+            game_mode = getattr(self.screen_manager.context, 'multiplayer_game_mode', 'coop')
+            level_number = getattr(self.screen_manager.context, 'level_number', None)
+            
+            self.setup_multiplayer_world(p1_skin, p2_skin, selected_map, game_mode, level_number)
         else:
             # 单机模式
             player_skin = getattr(self.screen_manager.context, 'player_skin', 1)
@@ -1602,6 +1874,48 @@ class GameEngine:
             self._setup_single_player_world(player_skin, selected_map)
         
         print(f"[Game] 第 {self.current_level} 关已准备就绪！")
+    
+    def _update_level_conditions(self):
+        """更新关卡模式的特殊条件（时间限制和目标得分）"""
+        if not self.level_start_time:
+            self.level_start_time = pygame.time.get_ticks()
+        
+        # 更新时间限制
+        if self.time_limit is not None:
+            current_time = pygame.time.get_ticks()
+            elapsed_seconds = (current_time - self.level_start_time) / 1000.0
+            self.time_remaining = max(0, self.time_limit - elapsed_seconds)
+            
+            # 同步到GameWorld以便网络传输
+            self.game_world.time_remaining = self.time_remaining
+            
+            # 检查时间是否耗尽
+            if self.time_remaining <= 0:
+                print(f"[Game] 时间耗尽！关卡失败！")
+                self.game_world.game_over = True
+                self.game_world.winner = "enemy"
+                return
+        
+        # 更新目标得分
+        if self.score_target is not None:
+            # 计算当前得分（可以根据实际游戏规则调整）
+            # 这里简单计算：击败敌人得分 + 剩余时间奖励
+            enemy_count = len([t for t in self.game_world.tanks if t.tank_type == "enemy" and not t.active])
+            self.current_score = enemy_count * 100  # 每击败一个敌人得100分
+            
+            # 如果有时间限制，剩余时间可以转换为额外分数
+            if self.time_remaining is not None:
+                self.current_score += int(self.time_remaining * 10)  # 每秒剩余时间10分
+            
+            # 同步到GameWorld以便网络传输
+            self.game_world.current_score = self.current_score
+            
+            # 检查是否达到目标得分
+            if self.current_score >= self.score_target:
+                print(f"[Game] 达到目标得分 {self.score_target}！关卡胜利！")
+                self.game_world.game_over = True
+                self.game_world.winner = "player"
+                return
 
     # ------------------------------------------------------------------ #
     # 玩家控制

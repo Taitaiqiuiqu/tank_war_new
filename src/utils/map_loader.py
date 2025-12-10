@@ -201,7 +201,7 @@ class MapLoader:
             walls.append({
                 'x': base_x,
                 'y': base_y,
-                'type': 'base'
+                'type': 5
             })
         
         print(f"[MapLoader] 找到基地数量: {len(bases)}")
@@ -301,7 +301,7 @@ class MapLoader:
             # 计算新的墙体位置，保持相对位置不变
             scaled_x = int(x * (target_grid_size / 50))
             scaled_y = int(y * (target_grid_size / 50))
-            scaled_walls.append({"x": scaled_x, "y": scaled_y, "type": "brick"})
+            scaled_walls.append({"x": scaled_x, "y": scaled_y, "type": 1})
         
         default_map["walls"] = scaled_walls
         return default_map

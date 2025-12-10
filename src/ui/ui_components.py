@@ -12,10 +12,13 @@ try:
     original_translate = utility.translate
     
     def patched_translate(text, **kwargs):
-        """Bypass i18n translation to prevent errors"""
-        if text is None:
-            return ""
-        return str(text)
+            """Bypass i18n translation to prevent errors and preserve non-ASCII."""
+            if text is None:
+                return ""
+            try:
+                return str(text)
+            except Exception:
+                return ""
     
     utility.translate = patched_translate
 except Exception as e:
@@ -28,26 +31,33 @@ class UIManagerWrapper:
         self.screen_width = screen_width
         self.screen_height = screen_height
         self.last_focused_element = None  # 跟踪上一个获得焦点的元素
+        # 记录基准分辨率用于缩放
+        self.base_width = screen_width
+        self.base_height = screen_height
+        self.scale_x = 1.0
+        self.scale_y = 1.0
         
         # 初始化 UIManager
         self.manager = UIManager((screen_width, screen_height))
         
-        # 设置中文字体
+        # 设置中文像素字体
         font_path = get_chinese_font()
         if font_path:
-            print(f"✓ 成功加载中文字体: {font_path}")
+            print(f"✓ 成功加载中文像素字体: {font_path}")
+            # 注册两种名称：pixel（主题使用）和 chinese（兼容旧代码）
+            self.manager.add_font_paths("pixel", font_path)
             self.manager.add_font_paths("chinese", font_path)
-            
-            # 加载主题文件
-            import os
-            theme_path = os.path.join(os.path.dirname(__file__), 'theme.json')
-            try:
-                self.manager.get_theme().load_theme(theme_path)
-                print(f"✓ 成功加载UI主题: {theme_path}")
-            except Exception as e:
-                print(f"✗ 加载主题失败: {e}")
         else:
-            print(f"✗ 警告: 未找到中文字体，中文输入可能无法正常显示")
+            print(f"✗ 警告: 未找到中文像素字体，中文输入可能无法正常显示")
+        
+        # 加载主题文件
+        import os
+        theme_path = os.path.join(os.path.dirname(__file__), 'theme.json')
+        try:
+            self.manager.get_theme().load_theme(theme_path)
+            print(f"✓ 成功加载UI主题: {theme_path}")
+        except Exception as e:
+            print(f"✗ 加载主题失败: {e}")
 
         
     def handle_event(self, event: pygame.event.Event):
@@ -77,6 +87,29 @@ class UIManagerWrapper:
         self.screen_width = width
         self.screen_height = height
         self.manager.set_window_resolution((width, height))
+        # 缩放比例（相对初始分辨率）
+        if hasattr(self, "base_width") and hasattr(self, "base_height"):
+            self.scale_x = width / self.base_width if self.base_width else 1.0
+            self.scale_y = height / self.base_height if self.base_height else 1.0
+        else:
+            # 记录初始分辨率用于缩放
+            self.base_width, self.base_height = width, height
+            self.scale_x = 1.0
+            self.scale_y = 1.0
+    
+    def scale_rect(self, rect: pygame.Rect) -> pygame.Rect:
+        """
+        根据当前缩放比例缩放一个 Rect。
+        注意：需要调用方自行决定 anchor（此处简单基于(0,0)缩放）。
+        """
+        if not hasattr(self, "scale_x"):
+            return rect
+        return pygame.Rect(
+            int(rect.x * self.scale_x),
+            int(rect.y * self.scale_y),
+            int(rect.width * self.scale_x),
+            int(rect.height * self.scale_y),
+        )
     
     def _update_ime_rect(self):
         """更新IME候选词窗口位置"""
@@ -109,6 +142,21 @@ class UIManagerWrapper:
 def get_chinese_font() -> str | None:
     """寻找可用的中文字体路径"""
     import os
+    
+    fonts_dir = os.path.join(os.path.dirname(__file__), "fonts")
+    
+    # 1) 优先使用项目内的像素中文字体（约定名）
+    preferred_names = ["全小素.ttf", "pixel_chinese.ttf", "pixel-chinese.ttf", "pixel_cn.ttf"]
+    for name in preferred_names:
+        candidate = os.path.join(fonts_dir, name)
+        if os.path.exists(candidate):
+            return candidate
+    
+    # 2) 若未找到约定名，自动选择 fonts 目录下的第一个 ttf/ttc/otf
+    if os.path.isdir(fonts_dir):
+        for fname in os.listdir(fonts_dir):
+            if fname.lower().endswith((".ttf", ".ttc", ".otf")):
+                return os.path.join(fonts_dir, fname)
     
     # 方法1: 尝试 Windows 系统字体的直接路径
     windows_fonts = [

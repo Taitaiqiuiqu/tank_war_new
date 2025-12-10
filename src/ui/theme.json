@@ -1,37 +1,130 @@
 {
+    "defaults": {
+        "font": {
+            "name": "pixel",
+            "size": "16"
+        },
+        "colours": {
+            "normal_bg": "#1d1f21",
+            "hovered_bg": "#2c2f33",
+            "disabled_bg": "#151618",
+            "selected_bg": "#3a3f44",
+            "active_bg": "#3a3f44",
+            "normal_text": "#e0e0e0",
+            "hovered_text": "#ffffff",
+            "disabled_text": "#666666",
+            "selected_text": "#ffffff",
+            "active_text": "#ffffff",
+            "dark_bg": "#0f1113",
+            "light_bg": "#2c2f33",
+            "border": "#6ad16a",
+            "link_text": "#6ad16a",
+            "link_hover": "#8ff08f"
+        },
+        "misc": {
+            "shape": "rectangle",
+            "border_width": "2",
+            "shadow_width": "0",
+            "shape_corner_radius": "0"
+        }
+    },
     "label": {
         "font": {
             "name": "chinese",
-            "size": "14",
-            "regular_path": "C:/Windows/Fonts/msyh.ttc"
+            "size": "16"
         }
     },
     "button": {
         "font": {
-            "name": "chinese",
-            "size": "14",
-            "regular_path": "C:/Windows/Fonts/msyh.ttc"
+            "name": "pixel",
+            "size": "16"
+        },
+        "colours": {
+            "normal_bg": "#1d1f21",
+            "hovered_bg": "#2c2f33",
+            "active_bg": "#3a3f44",
+            "disabled_bg": "#151618",
+            "normal_text": "#e0e0e0",
+            "hovered_text": "#ffffff",
+            "active_text": "#ffffff",
+            "disabled_text": "#666666",
+            "border": "#6ad16a"
+        },
+        "misc": {
+            "border_width": "2",
+            "shadow_width": "0",
+            "shape": "rectangle",
+            "shape_corner_radius": "0"
         }
     },
     "text_entry_line": {
         "font": {
             "name": "chinese",
-            "size": "14",
-            "regular_path": "C:/Windows/Fonts/msyh.ttc"
+            "size": "16"
+        },
+        "colours": {
+            "dark_bg": "#0f1113",
+            "light_bg": "#1d1f21",
+            "border": "#6ad16a",
+            "normal_text": "#e0e0e0",
+            "selected_text": "#ffffff",
+            "cursor": "#6ad16a"
+        },
+        "misc": {
+            "border_width": "2",
+            "shape_corner_radius": "0"
         }
     },
     "selection_list": {
         "font": {
             "name": "chinese",
-            "size": "14",
-            "regular_path": "C:/Windows/Fonts/msyh.ttc"
+            "size": "16"
+        },
+        "colours": {
+            "normal_bg": "#1d1f21",
+            "hovered_bg": "#2c2f33",
+            "selected_bg": "#3a3f44",
+            "active_bg": "#3a3f44",
+            "normal_text": "#e0e0e0",
+            "hovered_text": "#ffffff",
+            "selected_text": "#ffffff",
+            "active_text": "#ffffff",
+            "border": "#6ad16a"
+        },
+        "misc": {
+            "border_width": "2",
+            "shape_corner_radius": "0"
         }
     },
-    "window": {
+    "drop_down_menu": {
         "font": {
             "name": "chinese",
-            "size": "14",
-            "regular_path": "C:/Windows/Fonts/msyh.ttc"
+            "size": "16"
+        },
+        "colours": {
+            "normal_bg": "#1d1f21",
+            "hovered_bg": "#2c2f33",
+            "selected_bg": "#3a3f44",
+            "normal_text": "#e0e0e0",
+            "hovered_text": "#ffffff",
+            "selected_text": "#ffffff",
+            "border": "#6ad16a"
+        },
+        "misc": {
+            "border_width": "2",
+            "shape_corner_radius": "0"
         }
-    }
+    },
+    "panel": {
+        "colours": {
+            "dark_bg": "#0f1113",
+            "light_bg": "#1d1f21",
+            "border": "#6ad16a"
+        },
+        "misc": {
+            "border_width": "2",
+            "shape_corner_radius": "0"
+        }
+    },
+    "window": {}
 }

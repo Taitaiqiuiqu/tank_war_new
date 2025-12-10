@@ -135,6 +135,7 @@ class GameWorld:
         # 游戏状态
         self.game_over = False
         self.winner: Optional[str] = None
+        self.game_mode = "single"  # 游戏模式: "single", "coop", "pvp", "mixed", "level"
         self.player_scores: Dict[str, int] = {}
         self.spawn_points: Dict[str, List[Tuple[int, int]]] = {"player": [], "enemy": []}
         self.debug_overlay = False
@@ -226,6 +227,10 @@ class GameWorld:
         if tank_type not in self.spawn_points:
             raise ValueError(f"未知的坦克类型: {tank_type}")
         self.spawn_points[tank_type] = list(points)
+        # 重置轮询索引，确保新列表从头开始
+        if not hasattr(self, "_spawn_indices"):
+            self._spawn_indices = {}
+        self._spawn_indices[tank_type] = 0
 
     def spawn_tank(
         self,
@@ -433,10 +438,17 @@ class GameWorld:
     # ----------------------------------------------------------------------
     def _get_spawn_point(self, tank_type: str) -> Tuple[int, int]:
         points = self.spawn_points.get(tank_type) or []
-        if points:
-            return random.choice(points)
-        # 默认中心点，保证不会抛异常
-        return self.width // 2, self.height // 2
+        if not points:
+            # 默认中心点，保证不会抛异常
+            return self.width // 2, self.height // 2
+        
+        # 轮询：按索引依次取点
+        if not hasattr(self, "_spawn_indices"):
+            self._spawn_indices = {}
+        idx = self._spawn_indices.get(tank_type, 0) % len(points)
+        spawn = points[idx]
+        self._spawn_indices[tank_type] = (idx + 1) % len(points)
+        return spawn
 
     def _on_object_destroyed(self, obj: GameObject):
         if isinstance(obj, Tank):
@@ -528,6 +540,10 @@ class GameWorld:
                 if bullet.rect.colliderect(tank.rect):
                     bullet.handle_collision(tank)
                     tank.handle_collision(bullet)
+                    # 混战模式计分：玩家子弹击毁敌人加分
+                    if not tank.active and bullet.owner and bullet.owner.tank_type == "player" and tank.tank_type == "enemy":
+                        player_key = "player1" if bullet.owner.tank_id == 1 else "player2"
+                        self.player_scores[player_key] = self.player_scores.get(player_key, 0) + 1
                     if not bullet.active:
                         break
 
@@ -606,7 +622,9 @@ class GameWorld:
     def _fortify_base(self):
         """强化基地周围墙体"""
         if self.base_fortified:
-            return # 已经在强化状态，重置计时器即可（在update中处理）
+            # 已在强化状态，刷新计时器即可
+            self.fortify_base_timer = config.FORTIFY_BASE_DURATION
+            return
             
         self.base_fortified = True
         self.original_base_walls = []
@@ -695,6 +713,18 @@ class GameWorld:
         if self.game_over:
             return
 
+        # 根据游戏模式选择不同的判定逻辑
+        if self.game_mode == "pvp":
+            self._check_pvp_game_status()
+        elif self.game_mode == "mixed":
+            self._check_mixed_game_status()
+        elif self.game_mode in ["coop", "level"]:
+            self._check_coop_game_status()
+        else:  # single
+            self._check_single_game_status()
+    
+    def _check_single_game_status(self):
+        """单机模式的胜负判定"""
         # 检查基地是否被摧毁（关键条件！）
         base_exists = any(wall.wall_type == Wall.BASE and wall.active for wall in self.walls)
         if not base_exists:
@@ -743,6 +773,122 @@ class GameWorld:
             # 所有敌人被消灭，游戏胜利
             self.game_over = True
             self.winner = "player"
+    
+    def _check_coop_game_status(self):
+        """合作模式的胜负判定"""
+        # 检查基地是否被摧毁（关键条件！）
+        base_exists = any(wall.wall_type == Wall.BASE and wall.active for wall in self.walls)
+        if not base_exists:
+            # 基地被摧毁，游戏失败
+            self.game_over = True
+            self.winner = "enemy"
+            return
+
+        # 检查玩家方是否还有有效生命（活跃坦克或剩余生命值）
+        player_has_lives = False
+        
+        # 首先检查所有活跃的玩家坦克
+        active_player_tanks = [t for t in self.tanks if t.tank_type == "player" and t.active]
+        if active_player_tanks:
+            player_has_lives = True
+        
+        # 如果没有活跃的玩家坦克，检查是否有剩余生命值
+        if not player_has_lives:
+            for tank_id, lives in self.tank_lives.items():
+                if tank_id in self.tank_info and self.tank_info[tank_id]["type"] == "player" and lives > 0:
+                    player_has_lives = True
+                    break
+        
+        # 检查敌人方是否还有有效生命
+        enemy_has_lives = False
+        
+        # 首先检查所有活跃的敌人坦克
+        active_enemy_tanks = [t for t in self.tanks if t.tank_type == "enemy" and t.active]
+        if active_enemy_tanks:
+            enemy_has_lives = True
+        
+        # 如果没有活跃的敌人坦克，检查是否有剩余生命值
+        if not enemy_has_lives:
+            for tank_id, lives in self.tank_lives.items():
+                if tank_id in self.tank_info and self.tank_info[tank_id]["type"] == "enemy" and lives > 0:
+                    enemy_has_lives = True
+                    break
+
+        # 判断游戏胜负
+        if not player_has_lives and (active_enemy_tanks or enemy_has_lives):
+            # 所有玩家没有剩余生命，游戏失败
+            self.game_over = True
+            self.winner = "enemy"
+        elif not enemy_has_lives and (active_player_tanks or player_has_lives):
+            # 所有敌人被消灭，游戏胜利
+            self.game_over = True
+            self.winner = "player"
+    
+    def _check_pvp_game_status(self):
+        """对战模式的胜负判定"""
+        # 获取两个玩家的活跃状态
+        p1_active = any(t.tank_id == 1 and t.active for t in self.tanks)
+        p2_active = any(t.tank_id == 2 and t.active for t in self.tanks)
+        
+        # 检查玩家是否有剩余生命
+        p1_has_lives = p1_active or (1 in self.tank_lives and self.tank_lives[1] > 0)
+        p2_has_lives = p2_active or (2 in self.tank_lives and self.tank_lives[2] > 0)
+        
+        # 判断胜负
+        if not p1_has_lives and p2_has_lives:
+            # 玩家1失败，玩家2胜利
+            self.game_over = True
+            self.winner = "player2"
+        elif p1_has_lives and not p2_has_lives:
+            # 玩家1胜利，玩家2失败
+            self.game_over = True
+            self.winner = "player1"
+        elif not p1_has_lives and not p2_has_lives:
+            # 双方都失败，平局
+            self.game_over = True
+            self.winner = "draw"
+    
+    def _check_mixed_game_status(self):
+        """混战模式的胜负判定"""
+        # 混战模式：既要合作消灭敌人，又要竞争得分
+        # 首先检查是否所有敌人都被消灭
+        enemy_has_lives = False
+        
+        # 检查所有活跃的敌人坦克
+        active_enemy_tanks = [t for t in self.tanks if t.tank_type == "enemy" and t.active]
+        if active_enemy_tanks:
+            enemy_has_lives = True
+        
+        # 如果没有活跃的敌人坦克，检查是否有剩余生命值
+        if not enemy_has_lives:
+            for tank_id, lives in self.tank_lives.items():
+                if tank_id in self.tank_info and self.tank_info[tank_id]["type"] == "enemy" and lives > 0:
+                    enemy_has_lives = True
+                    break
+        
+        # 检查玩家是否都失败了
+        p1_active = any(t.tank_id == 1 and t.active for t in self.tanks)
+        p2_active = any(t.tank_id == 2 and t.active for t in self.tanks)
+        p1_has_lives = p1_active or (1 in self.tank_lives and self.tank_lives[1] > 0)
+        p2_has_lives = p2_active or (2 in self.tank_lives and self.tank_lives[2] > 0)
+        
+        # 判断胜负
+        if not enemy_has_lives and (p1_has_lives or p2_has_lives):
+            # 所有敌人被消灭，根据得分决定胜负
+            p1_score = self.player_scores.get("player1", 0)
+            p2_score = self.player_scores.get("player2", 0)
+            
+            self.game_over = True
+            if p1_score > p2_score:
+                self.winner = "player1"
+            elif p2_score > p1_score:
+                self.winner = "player2"
+            else:
+                self.winner = "draw"  # 得分相同，平局
+        elif not p1_has_lives and not p2_has_lives:
+            # 所有玩家都失败，游戏结束
+            self.game_over = True
+            self.winner = "enemy"
 
     def _render_debug_overlay(self, screen):
         """绘制调试数据，便于快速了解当前状态。"""

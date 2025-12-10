@@ -2,7 +2,9 @@
     "unlocked_levels": [
         1,
         2,
-        3
+        3,
+        4,
+        5
     ],
     "max_level": 10
 }

@@ -48,27 +48,39 @@ class StateManager:
         my_tank_data = None  # Separate data for client's own tank
         
         for tank in self.world.tanks:
-            if tank.active:
+            # Include all tanks, not just active ones, to properly sync death state
+            tank_data = {
+                "id": tank.tank_id,
+                "type": tank.tank_type,
+                "x": tank.x,
+                "y": tank.y,
+                "dir": tank.direction,
+                "vx": tank.velocity_x,  # For animation
+                "vy": tank.velocity_y,  # For animation
+                "hp": getattr(tank, "health", 100),
+                "shield": tank.shield_active,
+                "skin": getattr(tank, "skin_id", 1),
+                "level": getattr(tank, "level", 0),
+                "has_boat": getattr(tank, "has_boat", False),
+                "is_on_river": getattr(tank, "is_on_river", False),
+                "active": tank.active  # Explicitly include active state
+            }
+            
+            # Only include position/velocity data for active tanks
+            if not tank.active:
+                # For inactive tanks, we only need basic info
                 tank_data = {
                     "id": tank.tank_id,
                     "type": tank.tank_type,
-                    "x": tank.x,
-                    "y": tank.y,
-                    "dir": tank.direction,
-                    "vx": tank.velocity_x,  # For animation
-                    "vy": tank.velocity_y,  # For animation
-                    "hp": getattr(tank, "health", 100),
-                    "shield": tank.shield_active,
-                    "skin": getattr(tank, "skin_id", 1),
-                    "level": getattr(tank, "level", 0),
-                    "has_boat": getattr(tank, "has_boat", False),
-                    "is_on_river": getattr(tank, "is_on_river", False)
+                    "active": False,
+                    "hp": 0
                 }
-                tanks.append(tank_data)
                 
-                # Mark client's tank separately (will be set by game.py)
-                if hasattr(self, 'client_tank_id') and tank.tank_id == self.client_tank_id:
-                    my_tank_data = tank_data
+            tanks.append(tank_data)
+            
+            # Mark client's tank separately (will be set by game.py)
+            if hasattr(self, 'client_tank_id') and tank.tank_id == self.client_tank_id:
+                my_tank_data = tank_data
                 
         bullets = []
         for bullet in self.world.bullets:
@@ -144,7 +156,14 @@ class StateManager:
             "props": props,
             "meta": {
                 "over": self.world.game_over,
-                "win": self.world.winner
+                "win": self.world.winner,
+                # 添加关卡模式特殊条件同步
+                "game_mode": getattr(self.world, "game_mode", None),
+                "level_number": getattr(self.world, "level_number", None),
+                "time_limit": getattr(self.world, "time_limit", None),
+                "time_remaining": getattr(self.world, "time_remaining", None),
+                "score_target": getattr(self.world, "score_target", None),
+                "current_score": getattr(self.world, "current_score", None)
             }
         }
 
@@ -239,11 +258,29 @@ class StateManager:
         # Disable missing tanks (including local player if dead!)
         for tank in self.world.tanks:
             if tank.tank_id not in remote_tanks:
-                # Debug log for tank disabling
+                # Tank is dead or removed from server
                 if tank.tank_type == "player":
-                    print(f"[Client] Disabling tank {tank.tank_id} (Not in remote). Local Player ID: {local_player_id}")
+                    print(f"[Client] Player tank {tank.tank_id} died (Not in remote state). Local Player ID: {local_player_id}")
+                    # If this is the local player, create death explosion
+                    if local_player_id and tank.tank_id == local_player_id:
+                        from src.game_engine.game_world import Explosion
+                        explosion = Explosion(tank.x + 20, tank.y + 20, 20, 0)
+                        self.world.add_object(explosion)
+                        print(f"[Client] Created death explosion for local player")
+                
+                # Mark tank as inactive and invisible
                 tank.active = False
                 tank.visible = False
+                tank.health = 0  # Ensure health is 0 for dead tanks
+            else:
+                # Tank exists in remote state, ensure it's active if server says so
+                remote_tank_data = remote_tanks[tank.tank_id]
+                if remote_tank_data.get("active", True):
+                    tank.active = True
+                    tank.visible = True
+                else:
+                    tank.active = False
+                    tank.visible = False
                 
         # 2. Sync Bullets
         self.world.bullets.clear() 
@@ -323,6 +360,15 @@ class StateManager:
         meta = state.get("meta", {})
         self.world.game_over = meta.get("over", False)
         self.world.winner = meta.get("win")
+        
+        # 同步关卡模式特殊条件
+        if meta.get("game_mode") == "level":
+            self.world.game_mode = meta.get("game_mode")
+            self.world.level_number = meta.get("level_number")
+            self.world.time_limit = meta.get("time_limit")
+            self.world.time_remaining = meta.get("time_remaining")
+            self.world.score_target = meta.get("score_target")
+            self.world.current_score = meta.get("current_score")
         
         # 7. Sync Props
         if hasattr(self.world, 'prop_manager'):
