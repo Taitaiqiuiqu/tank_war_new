@@ -1830,6 +1830,11 @@ class GameEngine:
                 if hasattr(self.game_world, 'prop_manager'):
                     self.game_world.prop_manager.update()
                 
+                # 注意：客户端模式下不调用 game_world.update()，因为：
+                # 1. 碰撞检测由服务端权威控制
+                # 2. 事件从服务端同步过来，通过 decode_state 添加到 world.events 中
+                # 3. 事件会在 decode_state 后立即消费
+                
                 # 3. Receive State and Reconcile
                 remote_state = self.network_manager.get_latest_state()
                 if remote_state:
@@ -1868,6 +1873,9 @@ class GameEngine:
                     self.state_manager.decode_state(remote_state)
                     
                     # 消费同步的事件（用于触发视频播放等客户端效果）
+                    # 注意：事件是从服务端同步过来的，通过 decode_state 添加到 world.events 中
+                    # 需要立即消费这些事件，否则可能会被清空
+                    # 确保在 decode_state 之后立即消费事件（无论是否有事件都调用，因为 consume_events 会处理空列表）
                     self._consume_game_events()
                     
                     # 检查游戏是否结束（客户端）
@@ -2090,32 +2098,46 @@ class GameEngine:
     # ------------------------------------------------------------------ #
     def _consume_game_events(self):
         events = self.game_world.consume_events()
+        role = getattr(self.network_manager.stats, 'role', 'standalone') if hasattr(self, 'network_manager') and self.enable_network else 'standalone'
+        
         if events:
-            role = getattr(self.network_manager.stats, 'role', 'standalone') if hasattr(self, 'network_manager') and self.enable_network else 'standalone'
             print(f"[{role.capitalize()}] 消费 {len(events)} 个事件: {[e.get('type', 'unknown') for e in events]}")
+        else:
+            # 调试：即使没有事件也记录，帮助排查问题
+            if hasattr(self, 'network_manager') and self.enable_network:
+                if role == "client":
+                    # 客户端模式下，检查事件队列状态
+                    event_count = len(self.game_world.events) if hasattr(self.game_world, 'events') else 0
+                    if event_count > 0:
+                        print(f"[Client] 警告：事件队列中有 {event_count} 个未消费的事件")
         
         for event in events:
             etype = event.get("type")
             data = event.get("data", {}) or {}
-            if etype == "grenade_pickup":
-                print(f"[Event] 触发手榴弹视频播放")
-                self.video_manager.play("grenade_pickup")
-            elif etype == "player_killed_by_enemy":
-                pos = data.get("position")
-                print(f"[Event] 触发玩家被击败视频播放，位置: {pos}")
-                self.video_manager.play("player_killed_by_enemy", position=pos)
-            elif etype == "player_life_depleted":
-                depleted_id = data.get("tank_id")
-                pos = self._get_teammate_focus_position(depleted_id)
-                print(f"[Event] 触发队友生命耗尽视频播放，位置: {pos}")
-                self.video_manager.play("teammate_out_of_lives", position=pos)
-            elif etype == "prop_pickup":
-                # 播放道具拾取音效（客户端也能听到）
-                from src.utils.resource_manager import resource_manager
-                try:
-                    resource_manager.play_sound("get_prop")
-                except Exception:
-                    pass  # 如果音效不存在，忽略错误
+            try:
+                if etype == "grenade_pickup":
+                    print(f"[Event] 触发手榴弹视频播放")
+                    self.video_manager.play("grenade_pickup")
+                elif etype == "player_killed_by_enemy":
+                    pos = data.get("position")
+                    print(f"[Event] 触发玩家被击败视频播放，位置: {pos}")
+                    self.video_manager.play("player_killed_by_enemy", position=pos)
+                elif etype == "player_life_depleted":
+                    depleted_id = data.get("tank_id")
+                    pos = self._get_teammate_focus_position(depleted_id)
+                    print(f"[Event] 触发队友生命耗尽视频播放，位置: {pos}")
+                    self.video_manager.play("teammate_out_of_lives", position=pos)
+                elif etype == "prop_pickup":
+                    # 播放道具拾取音效（客户端也能听到）
+                    from src.utils.resource_manager import resource_manager
+                    try:
+                        resource_manager.play_sound("get_prop")
+                    except Exception:
+                        pass  # 如果音效不存在，忽略错误
+            except Exception as e:
+                print(f"[Event] 处理事件 {etype} 时出错: {e}")
+                import traceback
+                traceback.print_exc()
 
     def _get_teammate_focus_position(self, depleted_id: Optional[int]) -> Tuple[int, int]:
         """找到仍然存活/有命的队友位置，用于显示鼓励视频。"""
@@ -2488,7 +2510,16 @@ class GameEngine:
 
     def _player_shoot(self):
         if self.enable_network and self.network_manager.stats.role == "client":
-            # Client: Send shoot command
+            # Client: Send shoot command and play sound immediately (client-side prediction)
+            # 客户端预测：立即播放射击音效，即使服务端可能拒绝
+            if self.player_tank and self.player_tank.active:
+                # 播放射击音效（客户端预测）
+                from src.utils.resource_manager import resource_manager
+                try:
+                    resource_manager.play_sound("fire")
+                except Exception as e:
+                    print(f"[Client] 播放射击音效失败: {e}")
+            # 发送射击命令到服务端
             self.network_manager.send_input({"move": self._movement_stack[-1] if self._movement_stack else -1, "shoot": True})
         else:
             # Host or Single: Shoot locally

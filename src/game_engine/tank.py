@@ -129,27 +129,37 @@ class Tank(GameObject):
             self.current_image = self.images[self.direction][self.animation_frame]
         
         # 播放移动音效
-        if self.is_moving and not self.move_sound_playing:
-            # 停止待机音效
-            if self.tank_type == "player" and self.idle_sound_playing:
-                resource_manager.stop_sound("player_idle")
-                self.idle_sound_playing = False
-            
-            sound_name = "player_move" if self.tank_type == "player" else "enemy_move"
-            resource_manager.play_sound(sound_name, loops=-1)
-            self.move_sound_playing = True
-        elif not self.is_moving and self.move_sound_playing:
-            sound_name = "player_move" if self.tank_type == "player" else "enemy_move"
-            resource_manager.stop_sound(sound_name)
-            self.move_sound_playing = False
+        # 注意：在客户端模式下，音效应该正常播放（客户端预测）
+        try:
+            if self.is_moving and not self.move_sound_playing:
+                # 停止待机音效
+                if self.tank_type == "player" and self.idle_sound_playing:
+                    resource_manager.stop_sound("player_idle")
+                    self.idle_sound_playing = False
+                
+                sound_name = "player_move" if self.tank_type == "player" else "enemy_move"
+                resource_manager.play_sound(sound_name, loops=-1)
+                self.move_sound_playing = True
+            elif not self.is_moving and self.move_sound_playing:
+                sound_name = "player_move" if self.tank_type == "player" else "enemy_move"
+                resource_manager.stop_sound(sound_name)
+                self.move_sound_playing = False
+        except Exception as e:
+            # 音效播放失败不应该影响游戏逻辑
+            print(f"[Tank] 播放移动音效失败: {e}")
         
         # 播放待机音效（仅玩家坦克）
-        if self.tank_type == "player" and not self.is_moving and not self.idle_sound_playing:
-            resource_manager.play_sound("player_idle", loops=-1)
-            self.idle_sound_playing = True
-        elif self.tank_type == "player" and self.is_moving and self.idle_sound_playing:
-            resource_manager.stop_sound("player_idle")
-            self.idle_sound_playing = False
+        # 注意：在客户端模式下，音效应该正常播放（客户端预测）
+        try:
+            if self.tank_type == "player" and not self.is_moving and not self.idle_sound_playing:
+                resource_manager.play_sound("player_idle", loops=-1)
+                self.idle_sound_playing = True
+            elif self.tank_type == "player" and self.is_moving and self.idle_sound_playing:
+                resource_manager.stop_sound("player_idle")
+                self.idle_sound_playing = False
+        except Exception as e:
+            # 音效播放失败不应该影响游戏逻辑
+            print(f"[Tank] 播放待机音效失败: {e}")
     
     def render(self, screen):
         """渲染坦克"""
@@ -213,7 +223,12 @@ class Tank(GameObject):
             return None
         
         # 播放射击音效
-        resource_manager.play_sound("fire")
+        # 注意：在客户端模式下，音效应该正常播放（客户端预测）
+        try:
+            resource_manager.play_sound("fire")
+        except Exception as e:
+            # 音效播放失败不应该影响游戏逻辑
+            print(f"[Tank] 播放射击音效失败: {e}")
         
         # 计算子弹的初始位置（从炮管前端射出）
         bullet_x = self.x + self.width // 2 - config.BULLET_SPAWN_OFFSET

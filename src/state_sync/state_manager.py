@@ -222,6 +222,8 @@ class StateManager:
                 # For local player: only update critical state (health, active), skip position (client-side prediction)
                 if local_player_id and tid == local_player_id:
                     # Only sync critical state that client can't predict
+                    # 注意：不覆盖位置、方向、速度（由客户端预测控制）
+                    # 但需要同步移动状态，以便音效播放正确
                     tank.health = t_data.get("hp", 100)
                     tank.shield_active = t_data.get("shield", False)
                     old_level = tank.level
@@ -235,6 +237,10 @@ class StateManager:
                         self._apply_level_effects(tank)
                     tank.has_boat = t_data.get("has_boat", False)
                     tank.is_on_river = t_data.get("is_on_river", False)
+                    
+                    # 同步移动状态（用于音效播放），但不覆盖速度（由客户端预测控制）
+                    # 注意：is_moving 状态在 tank.update() 中会根据 velocity 自动更新
+                    # 这里不需要手动设置，因为速度由客户端预测控制
                     
                     # Special Case: Respawn / Teleport
                     # If tank was inactive (dead) and now active, OR position difference is huge -> Force Sync
