@@ -49,6 +49,12 @@ class GameConfig:
     # 坦克默认生命数
     TANK_DEFAULT_LIVES = 3
     
+    # 所有敌人坦克默认生命数
+    ENEMY_TANK_DEFAULT_LIVES = 1
+    
+    # 最大活跃敌人数量限制
+    MAX_ACTIVE_ENEMIES = 3
+    
     # 手榴弹道具伤害（秒杀）
     GRENADE_DAMAGE = 1000
     

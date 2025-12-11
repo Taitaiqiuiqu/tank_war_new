@@ -1256,29 +1256,40 @@ class GameEngine:
             
             # Single player: only use first player spawn point
             player_spawn = tuple(player_spawns[0]) if player_spawns else (400, 550)
-            enemy_spawn = tuple(enemy_spawns[0]) if enemy_spawns else (400, 50)
             
-            # Apply offset to spawn points
+            # Apply offset to player spawn point
             player_spawn = (player_spawn[0] + offset_x, player_spawn[1] + offset_y)
-            enemy_spawn = (enemy_spawn[0] + offset_x, enemy_spawn[1] + offset_y)
+            
+            # 处理所有敌人出生点，但不超过最大活跃敌人数量限制
+            processed_enemy_spawns = []
+            max_enemies = min(len(enemy_spawns) if enemy_spawns else 1, config.MAX_ACTIVE_ENEMIES)
+            for i in range(max_enemies):
+                if i < len(enemy_spawns):
+                    enemy_spawn = tuple(enemy_spawns[i])
+                else:
+                    # 如果出生点不足，使用默认位置
+                    enemy_spawn = (400 + i * 50, 50)
+                enemy_spawn = (enemy_spawn[0] + offset_x, enemy_spawn[1] + offset_y)
+                processed_enemy_spawns.append(enemy_spawn)
             
             self.game_world.register_spawn_points("player", [player_spawn])
-            self.game_world.register_spawn_points("enemy", [enemy_spawn])
+            self.game_world.register_spawn_points("enemy", processed_enemy_spawns)
             
             self.local_player_id = player_tank_id
             self.player_tank = self.game_world.spawn_tank("player", tank_id=player_tank_id, position=player_spawn, skin_id=player_tank_id)
             
-            # 生成敌人 (使用动态ID)
-            enemy_id = self.next_enemy_id
-            self.next_enemy_id += 1
-            self.game_world.spawn_tank("enemy", tank_id=enemy_id, position=enemy_spawn)
-            self.enemy_controllers.append(EnemyAIController(
-                enemy_id,
-                self.game_world,
-                difficulty=self.game_difficulty,
-                player_weight=getattr(self, "ai_player_weight", 1.0),
-                base_weight=getattr(self, "ai_base_weight", 1.0),
-            ))
+            # 生成敌人 (使用所有可用出生点，但不超过限制)
+            for enemy_spawn in processed_enemy_spawns:
+                enemy_id = self.next_enemy_id
+                self.next_enemy_id += 1
+                self.game_world.spawn_tank("enemy", tank_id=enemy_id, position=enemy_spawn)
+                self.enemy_controllers.append(EnemyAIController(
+                    enemy_id,
+                    self.game_world,
+                    difficulty=self.game_difficulty,
+                    player_weight=getattr(self, "ai_player_weight", 1.0),
+                    base_weight=getattr(self, "ai_base_weight", 1.0),
+                ))
             
             # Load walls with offset
             walls = map_data.get('walls', [])
@@ -1300,25 +1311,33 @@ class GameEngine:
             # Use default map
             # 调整坦克出生点（适应30x30坦克）
             player_spawn = (self.screen_width // 2 - 15, self.screen_height - 100)
-            enemy_spawn = (self.screen_width // 2 - 15, 50)
+            
+            # 生成多个敌人出生点（默认地图，最多3个）
+            enemy_spawns = []
+            center_x = self.screen_width // 2
+            for i in range(config.MAX_ACTIVE_ENEMIES):
+                offset = (i - (config.MAX_ACTIVE_ENEMIES - 1) / 2) * 50  # 均匀分布
+                enemy_spawn = (center_x - 15 + int(offset), 50)
+                enemy_spawns.append(enemy_spawn)
 
             self.game_world.register_spawn_points("player", [player_spawn])
-            self.game_world.register_spawn_points("enemy", [enemy_spawn])
+            self.game_world.register_spawn_points("enemy", enemy_spawns)
 
             self.local_player_id = player_tank_id
             self.player_tank = self.game_world.spawn_tank("player", tank_id=player_tank_id, position=player_spawn)
             
-            # 生成敌人 (使用动态ID)
-            enemy_id = self.next_enemy_id
-            self.next_enemy_id += 1
-            self.game_world.spawn_tank("enemy", tank_id=enemy_id, position=enemy_spawn)
-            self.enemy_controllers.append(EnemyAIController(
-                enemy_id,
-                self.game_world,
-                difficulty=self.game_difficulty,
-                player_weight=getattr(self, "ai_player_weight", 1.0),
-                base_weight=getattr(self, "ai_base_weight", 1.0),
-            ))
+            # 生成敌人 (使用所有可用出生点)
+            for enemy_spawn in enemy_spawns:
+                enemy_id = self.next_enemy_id
+                self.next_enemy_id += 1
+                self.game_world.spawn_tank("enemy", tank_id=enemy_id, position=enemy_spawn)
+                self.enemy_controllers.append(EnemyAIController(
+                    enemy_id,
+                    self.game_world,
+                    difficulty=self.game_difficulty,
+                    player_weight=getattr(self, "ai_player_weight", 1.0),
+                    base_weight=getattr(self, "ai_base_weight", 1.0),
+                ))
 
             # 使用50x50网格创建地图布局
             # 重要：按照固定顺序生成墙体，确保客户端和服务端使用相同的ID
@@ -1417,11 +1436,19 @@ class GameEngine:
         # 设置GameWorld的游戏模式属性
         self.game_world.game_mode = "coop"
         
-        # 生成敌人
-        enemy_id = self.next_enemy_id
-        self.next_enemy_id += 1
-        self.game_world.spawn_tank("enemy", tank_id=enemy_id, position=self.enemy_spawn)
-        self.enemy_controllers.append(EnemyAIController(enemy_id, self.game_world, difficulty=self.game_difficulty))
+        # 生成敌人 (使用所有可用出生点，但不超过限制)
+        enemy_spawns = getattr(self, 'enemy_spawns', [self.enemy_spawn])
+        for enemy_spawn in enemy_spawns:
+            enemy_id = self.next_enemy_id
+            self.next_enemy_id += 1
+            self.game_world.spawn_tank("enemy", tank_id=enemy_id, position=enemy_spawn)
+            self.enemy_controllers.append(EnemyAIController(
+                enemy_id, 
+                self.game_world, 
+                difficulty=self.game_difficulty,
+                player_weight=getattr(self, "ai_player_weight", 1.0),
+                base_weight=getattr(self, "ai_base_weight", 1.0),
+            ))
     
     def _setup_pvp_mode(self, p1_tank_id, p2_tank_id, map_name):
         """设置对战模式"""
@@ -1549,7 +1576,14 @@ class GameEngine:
         # Default Spawns
         p1_spawn = (self.screen_width // 2 - 100, self.screen_height - 100)
         p2_spawn = (self.screen_width // 2 + 100, self.screen_height - 100)
-        enemy_spawn = (self.screen_width // 2 - 15, 50)
+        # 默认生成多个敌人出生点
+        default_enemy_spawns = []
+        center_x = self.screen_width // 2
+        for i in range(config.MAX_ACTIVE_ENEMIES):
+            offset = (i - (config.MAX_ACTIVE_ENEMIES - 1) / 2) * 50  # 均匀分布
+            enemy_spawn = (center_x - 15 + int(offset), 50)
+            default_enemy_spawns.append(enemy_spawn)
+        enemy_spawn = default_enemy_spawns[0]  # 向后兼容
         
         # Calculate map offset to center the map in the game world
         offset_x = 0
@@ -1576,18 +1610,31 @@ class GameEngine:
                 p2_spawn = (p1_spawn[0] + 100, p1_spawn[1])
             
             enemy_spawns = map_data.get('enemy_spawns', [])
-            if enemy_spawns:
-                enemy_spawn = tuple(enemy_spawns[0])
+            if not enemy_spawns:
+                enemy_spawns = [(self.screen_width // 2 - 15, 50)]
+            
+            # 处理所有敌人出生点，但不超过最大活跃敌人数量限制
+            processed_enemy_spawns = []
+            max_enemies = min(len(enemy_spawns), config.MAX_ACTIVE_ENEMIES)
+            for i in range(max_enemies):
+                enemy_spawn = tuple(enemy_spawns[i])
+                enemy_spawn = (enemy_spawn[0] + offset_x, enemy_spawn[1] + offset_y)
+                processed_enemy_spawns.append(enemy_spawn)
             
             # Apply offset to spawn points
             p1_spawn = (p1_spawn[0] + offset_x, p1_spawn[1] + offset_y)
             p2_spawn = (p2_spawn[0] + offset_x, p2_spawn[1] + offset_y)
-            enemy_spawn = (enemy_spawn[0] + offset_x, enemy_spawn[1] + offset_y)
+            # 保留第一个敌人出生点作为向后兼容（用于其他模式）
+            enemy_spawn = processed_enemy_spawns[0] if processed_enemy_spawns else (self.screen_width // 2 - 15, 50)
+        else:
+            # 没有地图数据时，使用默认的多个敌人出生点
+            processed_enemy_spawns = default_enemy_spawns
                 
         # Store spawn points for use in mode-specific setup
         self.p1_spawn = p1_spawn
         self.p2_spawn = p2_spawn
         self.enemy_spawn = enemy_spawn
+        self.enemy_spawns = processed_enemy_spawns if 'processed_enemy_spawns' in locals() else default_enemy_spawns
         self.offset_x = offset_x
         self.offset_y = offset_y
         self.map_data = map_data
