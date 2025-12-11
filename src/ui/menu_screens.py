@@ -19,6 +19,24 @@ class MainMenuScreen(BaseScreen):
     def on_enter(self):
         super().on_enter()
         
+        # 在主菜单时开始预加载资源（异步，不阻塞）
+        from src.utils.resource_manager import resource_manager
+        from src.ui.video_manager import VideoPlaybackController
+        import os
+        
+        # 预加载图片和音频资源（如果还没加载）
+        if not resource_manager.is_preload_complete():
+            resource_manager.preload_all()
+        
+        # 初始化并预加载视频资源（如果还没有）
+        if not hasattr(self.context, 'video_manager'):
+            video_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "videos"))
+            self.context.video_manager = VideoPlaybackController(video_dir)
+        
+        video_manager = self.context.video_manager
+        if not video_manager.is_preload_complete():
+            video_manager.preload_all(async_load=True)
+        
         # 像素风卡片布局
         w, h = self.surface.get_size()
         card_w = min(520, max(420, int(w * 0.45)))
@@ -1452,6 +1470,60 @@ class RoomScreen(BaseScreen):
                         self.connection_status.set_text("状态: 连接断开")
                         self.connection_status.colour = (255, 0, 0)  # Red for disconnected
 
+    def on_exit(self):
+        """清理房间屏幕资源"""
+        super().on_exit()
+        
+        # 清理网络连接（如果存在）
+        if hasattr(self, 'network_manager'):
+            print("[RoomScreen] 清理网络连接...")
+            self.network_manager.stop()
+        
+        # 清理UI元素
+        if hasattr(self, 'left_panel'):
+            self.left_panel.kill()
+        if hasattr(self, 'right_panel'):
+            self.right_panel.kill()
+        if hasattr(self, 'btn_ready'):
+            self.btn_ready.kill()
+        if hasattr(self, 'btn_leave'):
+            self.btn_leave.kill()
+        if hasattr(self, 'btn_start'):
+            self.btn_start.kill()
+        if hasattr(self, 'btn_prev'):
+            self.btn_prev.kill()
+        if hasattr(self, 'btn_next'):
+            self.btn_next.kill()
+        if hasattr(self, 'map_selection_list'):
+            self.map_selection_list.kill()
+        if hasattr(self, 'game_mode_dropdown'):
+            self.game_mode_dropdown.kill()
+        if hasattr(self, 'difficulty_dropdown'):
+            self.difficulty_dropdown.kill()
+        if hasattr(self, 'player_list'):
+            self.player_list.kill()
+        if hasattr(self, 'connection_status'):
+            self.connection_status.kill()
+        if hasattr(self, 'ready_status_label'):
+            self.ready_status_label.kill()
+        if hasattr(self, 'local_image_elem'):
+            self.local_image_elem.kill()
+        if hasattr(self, 'remote_image_elem'):
+            self.remote_image_elem.kill()
+        
+        # 清理房间状态
+        self.local_ready = False
+        self.remote_ready = False
+        self._sent_initial_ready = False
+        self._sent_name = False
+        
+        # 清理上下文中的联机状态（但不完全清除，因为可能还要返回大厅）
+        # 只清理房间相关的临时状态
+        if hasattr(self.context, 'local_tank_id'):
+            delattr(self.context, 'local_tank_id')
+        if hasattr(self.context, 'remote_tank_id'):
+            delattr(self.context, 'remote_tank_id')
+    
     def handle_event(self, event: pygame.event.Event):
         super().handle_event(event)
         if event.type == pygame_gui.UI_BUTTON_PRESSED:

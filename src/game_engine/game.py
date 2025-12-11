@@ -1102,10 +1102,9 @@ class GameEngine:
         else:
             print(f"[Video] 视频目录: {video_dir}")
         self.video_manager = VideoPlaybackController(video_dir)
-        # 后台预加载视频与音频，减少首次播放卡顿
-        # 注意：在客户端模式下，预加载可能在线程中进行，会使用占位符
-        # 实际视频会在主线程中按需加载
-        self.video_manager.preload_all(async_load=True)
+        # 视频预加载已在主菜单或加载界面完成，这里不再重复预加载
+        # 如果视频管理器还未初始化，则初始化（但不在游戏引擎中预加载）
+        # 预加载应该在主菜单或加载界面完成
         
         # 宽高比适配相关
         self.game_world_aspect_ratio = 4/3  # 游戏世界保持4:3比例
@@ -2599,6 +2598,11 @@ class GameEngine:
         # 停止所有音效
         pygame.mixer.stop()
         
+        # 清理网络连接（如果是联机模式）
+        if self.enable_network and hasattr(self, 'network_manager'):
+            print("[Game] 清理网络连接...")
+            self.network_manager.stop()
+        
         # 清理游戏状态
         self.game_world.reset()
         self.enemy_controllers.clear()
@@ -2611,6 +2615,9 @@ class GameEngine:
             self.state_manager._captured_events = []
         if hasattr(self.state_manager, 'pending_remote_state'):
             self.state_manager.pending_remote_state = None
+        # 清理状态管理器的世界引用
+        if hasattr(self.state_manager, 'world'):
+            self.state_manager.world = None
         
         # 清理视频管理器
         if hasattr(self, 'video_manager'):
@@ -2622,6 +2629,11 @@ class GameEngine:
                 self.screen_manager.context.game_won = False
             if hasattr(self.screen_manager.context, 'next_level'):
                 self.screen_manager.context.next_level = None
+            # 清理联机模式相关状态
+            if hasattr(self.screen_manager.context, 'is_host'):
+                self.screen_manager.context.is_host = False
+            if hasattr(self.screen_manager.context, 'multiplayer_game_mode'):
+                self.screen_manager.context.multiplayer_game_mode = None
         
         # 切换到菜单状态
         self.current_state = "menu"

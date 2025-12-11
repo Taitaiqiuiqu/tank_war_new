@@ -37,6 +37,10 @@ class ResourceManager:
         
         # 资源是否已加载
         self._resources_loaded = False
+        self._preload_progress = 0.0  # 预加载进度 (0.0 - 1.0)
+        self._preload_status = ""  # 预加载状态文本
+        self._preload_total_steps = 7  # 总加载步骤数
+        self._preload_current_step = 0  # 当前加载步骤
     
     def _ensure_resources_loaded(self):
         """确保资源已加载（延迟加载）"""
@@ -47,16 +51,65 @@ class ResourceManager:
     def _load_all_resources(self):
         """加载所有游戏资源"""
         try:
+            self._preload_current_step = 0
+            self._preload_progress = 0.0
+            self._preload_status = "加载墙体图片..."
             self._load_wall_images()
+            self._preload_current_step = 1
+            self._preload_progress = 1.0 / self._preload_total_steps
+            
+            self._preload_status = "加载子弹图片..."
             self._load_bullet_image()
+            self._preload_current_step = 2
+            self._preload_progress = 2.0 / self._preload_total_steps
+            
+            self._preload_status = "加载爆炸动画..."
             self._load_explosion_frames()
+            self._preload_current_step = 3
+            self._preload_progress = 3.0 / self._preload_total_steps
+            
+            self._preload_status = "加载护盾动画..."
             self._load_shield_frames()
+            self._preload_current_step = 4
+            self._preload_progress = 4.0 / self._preload_total_steps
+            
+            self._preload_status = "加载河流护盾..."
             self._load_river_shield_image()
+            self._preload_current_step = 5
+            self._preload_progress = 5.0 / self._preload_total_steps
+            
+            self._preload_status = "加载星星动画..."
             self._load_star_frames()
+            self._preload_current_step = 6
+            self._preload_progress = 6.0 / self._preload_total_steps
+            
+            self._preload_status = "加载音频文件..."
             self._load_sounds()
+            self._preload_current_step = 7
+            self._preload_progress = 1.0
+            self._preload_status = "资源加载完成"
             print("✓ 游戏资源加载完成")
         except Exception as e:
             print(f"⚠ 加载资源时出错: {e}")
+            self._preload_status = f"加载出错: {e}"
+    
+    def preload_all(self):
+        """预加载所有资源（同步）"""
+        if not self._resources_loaded:
+            self._load_all_resources()
+            self._resources_loaded = True
+    
+    def get_preload_progress(self) -> float:
+        """获取预加载进度 (0.0 - 1.0)"""
+        return self._preload_progress
+    
+    def get_preload_status(self) -> str:
+        """获取预加载状态文本"""
+        return self._preload_status
+    
+    def is_preload_complete(self) -> bool:
+        """检查预加载是否完成"""
+        return self._resources_loaded and self._preload_progress >= 1.0
     
     def _load_wall_images(self):
         """加载墙体图片"""

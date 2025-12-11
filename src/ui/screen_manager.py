@@ -348,6 +348,30 @@ class ScreenManager:
             requested_state = self.context.next_state
             self.context.next_state = None
         
+        # 如果请求进入游戏，检查资源是否已加载
+        if requested_state == "game" and self.current_state != "loading":
+            from src.utils.resource_manager import resource_manager
+            from src.ui.video_manager import VideoPlaybackController
+            import os
+            
+            # 检查资源加载状态
+            resource_loaded = resource_manager.is_preload_complete()
+            video_loaded = True
+            
+            # 初始化视频管理器（如果还没有）
+            if not hasattr(self.context, 'video_manager'):
+                video_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "videos"))
+                self.context.video_manager = VideoPlaybackController(video_dir)
+            
+            video_manager = self.context.video_manager
+            video_loaded = video_manager.is_preload_complete()
+            
+            # 如果资源未完全加载，先显示加载界面
+            if not resource_loaded or not video_loaded:
+                # 保存目标状态
+                self.context._pending_game_state = "game"
+                requested_state = "loading"
+        
         if requested_state and requested_state != self.current_state:
             self.set_state(requested_state)
             
@@ -413,6 +437,13 @@ class ScreenManager:
             SettingsScreen
         )
         from src.ui.map_editor_screen import MapEditorScreen
+        from src.ui.loading_screen import LoadingScreen
+        
+        # 注册加载界面
+        self.register_screen(
+            "loading",
+            LoadingScreen(self.surface, self.context, self.ui_manager)
+        )
         
         # 添加游戏结束屏幕
         self.register_screen(

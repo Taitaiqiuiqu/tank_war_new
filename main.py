@@ -28,6 +28,26 @@ def main():
     # 创建游戏引擎实例
     game = GameEngine()
     
+    # 检查资源是否已加载，如果没有则先显示加载界面
+    from src.utils.resource_manager import resource_manager
+    from src.ui.video_manager import VideoPlaybackController
+    import os
+    
+    resource_loaded = resource_manager.is_preload_complete()
+    video_loaded = True
+    
+    # 初始化视频管理器（如果还没有）
+    if not hasattr(game.screen_manager.context, 'video_manager'):
+        video_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "videos"))
+        game.screen_manager.context.video_manager = VideoPlaybackController(video_dir)
+    
+    video_manager = game.screen_manager.context.video_manager
+    video_loaded = video_manager.is_preload_complete()
+    
+    # 如果资源未完全加载，先显示加载界面
+    if not resource_loaded or not video_loaded:
+        game.screen_manager.set_state("loading")
+    
     # 创建时钟对象用于帧率控制
     clock = pygame.time.Clock()
     

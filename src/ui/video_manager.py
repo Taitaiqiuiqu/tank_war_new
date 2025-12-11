@@ -101,6 +101,9 @@ class VideoPlaybackController:
         self.debug = bool(int(os.environ.get("VIDEO_DEBUG", "0")))
         self._preload_started = False
         self._preload_completed = False  # 预加载是否完成
+        self._preload_progress = 0.0  # 预加载进度 (0.0 - 1.0)
+        self._preload_status = ""  # 预加载状态文本
+        self._preload_current_file = ""  # 当前正在加载的文件
         self._load_lock = threading.Lock()  # 保护资源加载的线程锁
         self._loading_flags: Dict[str, threading.Event] = {}  # 跟踪正在加载的资源
         self._temp_files: List[str] = []  # 跟踪临时文件以便清理
@@ -347,7 +350,7 @@ class VideoPlaybackController:
             
             return asset
 
-    def preload_all(self, async_load: bool = True, force_reload: bool = False):
+    def preload_all(self, async_load: bool = True, force_reload: bool = False, progress_callback=None):
         """
         预加载默认配置中的所有视频，避免首次播放卡顿。
         
@@ -389,8 +392,21 @@ class VideoPlaybackController:
                 # 在主线程中，实际加载视频
                 loaded_count = 0
                 failed_count = 0
-                for cfg in self.DEFAULT_CONFIG.values():
+                config_list = list(self.DEFAULT_CONFIG.values())
+                total = len(config_list)
+                
+                for idx, cfg in enumerate(config_list):
                     filename = cfg["file"]
+                    self._preload_current_file = filename
+                    self._preload_progress = (idx + 1) / total if total > 0 else 0.0
+                    self._preload_status = f"加载视频: {filename}"
+                    
+                    if progress_callback:
+                        try:
+                            progress_callback(self._preload_progress, self._preload_status)
+                        except:
+                            pass
+                    
                     try:
                         asset = self._load_asset(filename)
                         if asset and not asset.placeholder:
@@ -406,6 +422,9 @@ class VideoPlaybackController:
                         print(f"[Video] 预加载异常 {filename}: {exc}")
                 
                 self._preload_completed = True
+                self._preload_progress = 1.0
+                self._preload_status = "视频加载完成"
+                self._preload_current_file = ""
                 print(f"[Video] 预加载完成: {loaded_count} 成功, {failed_count} 失败/占位符")
 
         if async_load:
@@ -486,8 +505,18 @@ class VideoPlaybackController:
             "total": total,
             "loaded": loaded,
             "placeholder": placeholder,
-            "progress": loaded / total if total > 0 else 0.0
+            "progress": self._preload_progress if self._preload_started else (loaded / total if total > 0 else 0.0),
+            "status": self._preload_status,
+            "current_file": self._preload_current_file
         }
+    
+    def get_preload_progress(self) -> float:
+        """获取预加载进度 (0.0 - 1.0)"""
+        return self._preload_progress
+    
+    def is_preload_complete(self) -> bool:
+        """检查预加载是否完成"""
+        return self._preload_completed and self._preload_progress >= 1.0
 
     def play(self, event_key: str, position: Optional[Tuple[int, int]] = None, size_ratio: Optional[float] = None):
         """按事件触发播放，遵循优先级互斥策略。"""
