@@ -358,11 +358,10 @@ class GameWorld:
     # ----------------------------------------------------------------------
     def update(self):
         """更新游戏世界。"""
-        # 客户端模式下不执行碰撞检测（由服务端权威控制）
-        # 但需要先进行预测性碰撞检测（在移动前），避免穿透
-        if not self.is_client_mode:
-            # 先进行预测性碰撞检测（在移动前）
-            self._check_collisions_predictive()
+        # 预测性碰撞检测（在移动前检测，避免穿透）
+        # 客户端模式下也需要进行预测性检测，以确保客户端预测的流畅性
+        # 但最终的碰撞判定由服务端权威控制
+        self._check_collisions_predictive()
         
         # 然后更新所有对象位置
         for obj in list(self.game_objects):
@@ -427,8 +426,11 @@ class GameWorld:
             else:
                 tank.is_on_river = False
 
-        # 碰撞检测已在移动前完成（预测性检测）
-        # 这里只进行边界检查和游戏状态检查
+        # 执行子弹碰撞检测（客户端和服务端都需要）
+        # 注意：坦克碰撞已在移动前通过预测性检测处理
+        self._check_collisions()
+        
+        # 游戏状态检查
         self._check_game_status()
 
     def render(self, screen):
@@ -574,7 +576,11 @@ class GameWorld:
                 obj.stop()
 
     def _check_collisions_predictive(self):
-        """执行预测性碰撞检测（在移动前检测，避免穿透）。"""
+        """执行预测性碰撞检测（在移动前检测，避免穿透）。
+        
+        注意：客户端模式下也会执行此检测，以确保客户端预测的流畅性。
+        但最终的碰撞判定由服务端权威控制，客户端只是预测。
+        """
         # 1. 坦克 vs 坦克（预测性检测）
         for idx, tank in enumerate(self.tanks):
             if not tank.active or (tank.velocity_x == 0 and tank.velocity_y == 0):

@@ -1804,6 +1804,12 @@ class GameEngine:
                         self.player_tank.stop()
                     
                     # Update tank physics (position, collision, etc.)
+                    # 注意：在客户端预测时，需要先进行预测性碰撞检测
+                    # 确保客户端模式（不执行权威逻辑，但需要预测性碰撞检测）
+                    self.game_world.is_client_mode = True
+                    # 先进行预测性碰撞检测（在移动前）
+                    self.game_world._check_collisions_predictive()
+                    # 然后更新坦克位置
                     self.player_tank.update()
                     
                     # Store prediction for later reconciliation
