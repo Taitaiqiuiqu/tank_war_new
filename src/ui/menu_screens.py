@@ -1126,8 +1126,9 @@ class RoomScreen(BaseScreen):
         else:
             self.btn_start.disable()
         
-        # 房主进入房间时，立即发送自己的坦克选择给客户端
-        if hasattr(self, 'network_manager') and self.context.is_host and self.network_manager.stats.connected:
+        # 进入房间时，立即发送自己的坦克选择给对方（房主和客户端都需要）
+        if hasattr(self, 'network_manager') and self.network_manager.stats.connected:
+            print(f"[Room] 进入房间，发送初始坦克选择: {self.local_tank_id} (is_host: {self.context.is_host})")
             self.network_manager.send_lobby_update(self.local_tank_id)
 
     def _load_available_maps(self):
@@ -1208,25 +1209,26 @@ class RoomScreen(BaseScreen):
         if not hasattr(self, '_sent_initial_ready'):
             self._sent_initial_ready = False
         
-        if self.room_update_timer > 0.5:
-            self.room_update_timer = 0
-            
-            # Check connection status
-            if hasattr(self, 'network_manager'):
-                if self.network_manager.stats.connected:
-                    # 首次连接后同步昵称
-                    if not self._sent_name:
-                        player_id = 1 if self.context.is_host else 2
-                        self.network_manager.send_event("player_name", {
-                            "id": player_id,
-                            "name": self.context.username
-                        })
-                        self._sent_name = True
+        # Process network messages every frame (not just every 0.5s) for immediate response
+        if hasattr(self, 'network_manager'):
+            if self.network_manager.stats.connected:
+                # 首次连接后同步昵称
+                if not self._sent_name:
+                    player_id = 1 if self.context.is_host else 2
+                    self.network_manager.send_event("player_name", {
+                        "id": player_id,
+                        "name": self.context.username
+                    })
+                    self._sent_name = True
 
-                    # Send initial ready state if not sent yet
-                    if not self._sent_initial_ready:
-                        self.network_manager.send_ready_state(self.local_ready)
-                        self._sent_initial_ready = True
+                # Send initial ready state if not sent yet
+                if not self._sent_initial_ready:
+                    self.network_manager.send_ready_state(self.local_ready)
+                    self._sent_initial_ready = True
+                
+                # Update UI elements every 0.5s to avoid flickering
+                if self.room_update_timer > 0.5:
+                    self.room_update_timer = 0
                     
                     # Update player list based on connection
                     host_name = self.context.username if self.context.is_host else getattr(self.context, "remote_username", "Player1")
@@ -1236,28 +1238,12 @@ class RoomScreen(BaseScreen):
                         f"{client_name} (Client)"
                     ])
                     
-                    # Update connection status label if exists
+                    # Update connection status label
                     if hasattr(self, 'connection_status'):
                         self.connection_status.set_text("状态: 已连接")
                         self.connection_status.colour = (0, 255, 0)  # Green for connected
-                else:
-                    # Disconnected
-                    self.player_list.set_item_list(["Player1 (Host)"])
-                    
-                    # Reset remote ready if disconnected
-                    if self.remote_ready:
-                        self.remote_ready = False
-                        self._update_ready_status()
-                    
-                    # Reset initial ready state flag when disconnected
-                    self._sent_initial_ready = False
-                    self._sent_name = False
-                    
-                    # Update connection status label if exists
-                    if hasattr(self, 'connection_status'):
-                        self.connection_status.set_text("状态: 连接断开")
-                        self.connection_status.colour = (255, 0, 0)  # Red for disconnected
-                    
+                
+                # Process network messages (every frame for immediate response)
                 if self.context.is_host:
                     # Host: Check for lobby updates from client
                     msgs = self.network_manager.get_inputs()
@@ -1265,9 +1251,12 @@ class RoomScreen(BaseScreen):
                         if msg.get("type") == "lobby_update":
                             payload = msg.get("payload")
                             if payload and "tank_id" in payload:
-                                self.remote_tank_id = payload["tank_id"]
+                                new_tank_id = payload["tank_id"]
+                                print(f"[Host] 收到客户端坦克选择更新: {new_tank_id} (当前显示: {self.remote_tank_id})")
+                                self.remote_tank_id = new_tank_id
                                 self.context.enemy_tank_id = self.remote_tank_id
                                 self._update_images()
+                                print(f"[Host] 已更新对手坦克显示为: {self.remote_tank_id}")
                                 # 房主收到客户端的坦克选择后，将自己的坦克选择发送给客户端（确保同步）
                                 self.network_manager.send_lobby_update(self.local_tank_id)
                         elif msg.get("type") == "ready_state":
@@ -1288,152 +1277,180 @@ class RoomScreen(BaseScreen):
                                     f"{host_name} (Host)",
                                     f"{client_name} (Client)"
                                 ])
-            else:
-                # Client: Check for game start and lobby updates
-                self.network_manager.get_latest_state()
-                
-                events = self.network_manager.get_events()
-                for event in events:
-                    if event.get("type") == "game_start":
-                        payload = event.get("payload")
-                        if payload:
-                            # Game Start!
-                            self.context.enemy_tank_id = payload["p1_tank_id"]
-                            self.context.player_tank_id = payload["p2_tank_id"]
-                            self.context.selected_map = payload.get("map_name", "default")
-                            
-                            # Store map data if provided by host
-                            if "map_data" in payload:
-                                self.context.received_map_data = payload["map_data"]
-                                print(f"[Client] 接收到地图数据: {self.context.selected_map}")
-                            else:
-                                self.context.received_map_data = None
-                            
-                            # Store game mode
-                            self.context.multiplayer_game_mode = payload.get("game_mode", "coop")
-                            self.context.level_number = payload.get("level_number")
-                            
-                            print(f"[Client] 游戏模式: {self.context.multiplayer_game_mode}")
-                            if self.context.level_number:
-                                print(f"[Client] 关卡编号: {self.context.level_number}")
-                            
-                            self.local_tank_id = self.context.player_tank_id
-                            
-                            self.context.next_state = "game"
+                else:
+                    # Client: Check for game start and lobby updates
+                    # 每帧都检查事件，不要等待0.5秒，确保及时响应
+                    self.network_manager.get_latest_state()
                     
-                    elif event.get("type") == "lobby_update":
-                        payload = event.get("payload")
-                        if payload and "tank_id" in payload:
-                            self.remote_tank_id = payload["tank_id"]
-                            self.context.enemy_tank_id = self.remote_tank_id
-                            self._update_images()
+                    events = self.network_manager.get_events()
+                    if events:
+                        print(f"[Client] 收到 {len(events)} 个事件: {[e.get('type') for e in events]}")
                     
-                    elif event.get("type") == "ready_state":
-                        payload = event.get("payload")
-                        if payload is not None:
-                            self.remote_ready = payload.get("is_ready", False)
-                            self._update_ready_status()
-                            # 客户端收到主机准备状态后，将自己的准备状态发送给主机
-                            self.network_manager.send_ready_state(self.local_ready)
-                    
-                    elif event.get("type") == "player_name":
-                        payload = event.get("payload", {})
-                        if payload.get("id") == 1 and payload.get("name"):
-                            self.context.remote_username = payload["name"]
-                            # 更新玩家列表显示
-                            host_name = self.context.remote_username
-                            client_name = self.context.username
-                            self.player_list.set_item_list([
-                                f"{host_name} (Host)",
-                                f"{client_name} (Client)"
-                            ])
-                    
-                    elif event.get("type") == "map_selection":
-                        payload = event.get("payload")
-                        if payload and "map_name" in payload:
-                            self.selected_map = payload["map_name"]
-                            self.context.selected_map = self.selected_map
-                            # Update UI to show selected map
-                            if hasattr(self, 'map_name_mapping'):
-                                for display_name, map_name in self.map_name_mapping.items():
-                                    if map_name == self.selected_map:
-                                        # Find and select in list
-                                        break
-                    
-                    elif event.get("type") == "difficulty_update":
-                        payload = event.get("payload")
-                        if payload and "difficulty" in payload:
-                            diff_key = payload["difficulty"]
-                            self.context.enemy_difficulty = diff_key
-                            # Update UI
-                            from src.game_engine.ai_config import DIFFICULTY_CONFIGS
-                            if diff_key in DIFFICULTY_CONFIGS:
-                                diff_name = DIFFICULTY_CONFIGS[diff_key]["name"]
-                                # Update dropdown selection without triggering event
-                                # pygame_gui doesn't have a clean set_selected_option that doesn't trigger?
-                                # Actually it's fine if it triggers as we check is_host
-                                # But for client, the dropdown is disabled anyway.
-                                # We just need to update the displayed text.
-                                # There isn't a direct set_selected method in older versions, let's check.
-                                # Assuming standard usage:
-                                self.difficulty_dropdown.selected_option = diff_name
-                                self.difficulty_dropdown.menu_states['closed'].finish()
-                                self.difficulty_dropdown.menu_states['closed'].start()
-                                # Or just kill and recreate? No that's ugly.
-                                # Let's try setting selected_option directly if possible or use internal method.
-                                # A safer way is just to let it be if it's disabled, but we want to see what host picked.
-                                # Let's try:
-                                # self.difficulty_dropdown.selected_option = diff_name
-                                # self.difficulty_dropdown.rebuild() 
-                                # But rebuild might not be available.
-                                # Simple hack: just print for now, UI update might need recreation.
-                                print(f"[Client] 收到难度更新: {diff_name}")
-                                # Recreate dropdown to update text (safest)
-                                rect = self.difficulty_dropdown.relative_rect
-                                manager = self.difficulty_dropdown.ui_manager
-                                self.difficulty_dropdown.kill()
-                                self.difficulty_dropdown = UIDropDownMenu(
-                                    options_list=self.difficulty_names,
-                                    starting_option=diff_name,
+                    for event in events:
+                        if event.get("type") == "game_start":
+                            payload = event.get("payload")
+                            if payload:
+                                # Game Start!
+                                self.context.enemy_tank_id = payload["p1_tank_id"]
+                                self.context.player_tank_id = payload["p2_tank_id"]
+                                self.context.selected_map = payload.get("map_name", "default")
+                                
+                                # Store map data if provided by host
+                                if "map_data" in payload:
+                                    self.context.received_map_data = payload["map_data"]
+                                    print(f"[Client] 接收到地图数据: {self.context.selected_map}")
+                                else:
+                                    self.context.received_map_data = None
+                                
+                                # Store game mode
+                                self.context.multiplayer_game_mode = payload.get("game_mode", "coop")
+                                self.context.level_number = payload.get("level_number")
+                                
+                                print(f"[Client] 游戏模式: {self.context.multiplayer_game_mode}")
+                                if self.context.level_number:
+                                    print(f"[Client] 关卡编号: {self.context.level_number}")
+                                
+                                self.local_tank_id = self.context.player_tank_id
+                                
+                                self.context.next_state = "game"
+                        
+                        elif event.get("type") == "lobby_update":
+                            payload = event.get("payload")
+                            if payload and "tank_id" in payload:
+                                new_tank_id = payload["tank_id"]
+                                print(f"[Client] 收到房主坦克选择更新: {new_tank_id} (当前显示: {self.remote_tank_id})")
+                                self.remote_tank_id = new_tank_id
+                                self.context.enemy_tank_id = self.remote_tank_id
+                                self._update_images()
+                                print(f"[Client] 已更新对手坦克显示为: {self.remote_tank_id}")
+                                # 客户端收到房主的坦克选择后，将自己的坦克选择发送给房主（确保同步）
+                                self.network_manager.send_lobby_update(self.local_tank_id)
+                        
+                        elif event.get("type") == "ready_state":
+                            payload = event.get("payload")
+                            if payload is not None:
+                                self.remote_ready = payload.get("is_ready", False)
+                                self._update_ready_status()
+                                # 客户端收到主机准备状态后，将自己的准备状态发送给主机
+                                self.network_manager.send_ready_state(self.local_ready)
+                        
+                        elif event.get("type") == "player_name":
+                            payload = event.get("payload", {})
+                            if payload.get("id") == 1 and payload.get("name"):
+                                self.context.remote_username = payload["name"]
+                                # 更新玩家列表显示
+                                host_name = self.context.remote_username
+                                client_name = self.context.username
+                                self.player_list.set_item_list([
+                                    f"{host_name} (Host)",
+                                    f"{client_name} (Client)"
+                                ])
+                        
+                        elif event.get("type") == "map_selection":
+                            payload = event.get("payload")
+                            if payload and "map_name" in payload:
+                                self.selected_map = payload["map_name"]
+                                self.context.selected_map = self.selected_map
+                                # Update UI to show selected map
+                                if hasattr(self, 'map_name_mapping'):
+                                    for display_name, map_name in self.map_name_mapping.items():
+                                        if map_name == self.selected_map:
+                                            # Find and select in list
+                                            break
+                        
+                        elif event.get("type") == "difficulty_update":
+                            payload = event.get("payload")
+                            if payload and "difficulty" in payload:
+                                diff_key = payload["difficulty"]
+                                self.context.enemy_difficulty = diff_key
+                                # Update UI
+                                from src.game_engine.ai_config import DIFFICULTY_CONFIGS
+                                if diff_key in DIFFICULTY_CONFIGS:
+                                    diff_name = DIFFICULTY_CONFIGS[diff_key]["name"]
+                                    # Update dropdown selection without triggering event
+                                    # pygame_gui doesn't have a clean set_selected_option that doesn't trigger?
+                                    # Actually it's fine if it triggers as we check is_host
+                                    # But for client, the dropdown is disabled anyway.
+                                    # We just need to update the displayed text.
+                                    # There isn't a direct set_selected method in older versions, let's check.
+                                    # Assuming standard usage:
+                                    self.difficulty_dropdown.selected_option = diff_name
+                                    self.difficulty_dropdown.menu_states['closed'].finish()
+                                    self.difficulty_dropdown.menu_states['closed'].start()
+                                    # Or just kill and recreate? No that's ugly.
+                                    # Let's try setting selected_option directly if possible or use internal method.
+                                    # A safer way is just to let it be if it's disabled, but we want to see what host picked.
+                                    # Let's try:
+                                    # self.difficulty_dropdown.selected_option = diff_name
+                                    # self.difficulty_dropdown.rebuild() 
+                                    # But rebuild might not be available.
+                                    # Simple hack: just print for now, UI update might need recreation.
+                                    print(f"[Client] 收到难度更新: {diff_name}")
+                                    # Recreate dropdown to update text (safest)
+                                    rect = self.difficulty_dropdown.relative_rect
+                                    manager = self.difficulty_dropdown.ui_manager
+                                    self.difficulty_dropdown.kill()
+                                    self.difficulty_dropdown = UIDropDownMenu(
+                                        options_list=self.difficulty_names,
+                                        starting_option=diff_name,
+                                        relative_rect=rect,
+                                        manager=manager
+                                    )
+                                    self.difficulty_dropdown.disable()
+                        
+                        elif event.get("type") == "game_mode_update":
+                            payload = event.get("payload")
+                            if payload and "game_mode" in payload:
+                                game_mode = payload["game_mode"]
+                                self.context.multiplayer_game_mode = game_mode
+                                # Update UI
+                                game_mode_map = {
+                                    "coop": "合作模式",
+                                    "pvp": "对战模式",
+                                    "mixed": "混战模式",
+                                    "level": "关卡模式"
+                                }
+                                game_mode_name = game_mode_map.get(game_mode, "合作模式")
+                                
+                                # Update dropdown selection
+                                rect = self.game_mode_dropdown.relative_rect
+                                manager = self.game_mode_dropdown.ui_manager
+                                self.game_mode_dropdown.kill()
+                                self.game_mode_dropdown = UIDropDownMenu(
+                                    options_list=["合作模式", "对战模式", "混战模式", "关卡模式"],
+                                    starting_option=game_mode_name,
                                     relative_rect=rect,
                                     manager=manager
                                 )
-                                self.difficulty_dropdown.disable()
+                                self.game_mode_dropdown.disable()
+                                
+                                # Update maps for this game mode
+                                self._update_maps_for_game_mode(game_mode)
+                        
+                        elif event.get("type") == "ready_state":
+                            payload = event.get("payload")
+                            if payload is not None:
+                                self.remote_ready = payload.get("is_ready", False)
+                                self._update_ready_status()
+            else:
+                # Disconnected - update UI every 0.5s
+                if self.room_update_timer > 0.5:
+                    self.room_update_timer = 0
+                    self.player_list.set_item_list(["Player1 (Host)"])
                     
-                    elif event.get("type") == "game_mode_update":
-                        payload = event.get("payload")
-                        if payload and "game_mode" in payload:
-                            game_mode = payload["game_mode"]
-                            self.context.multiplayer_game_mode = game_mode
-                            # Update UI
-                            game_mode_map = {
-                                "coop": "合作模式",
-                                "pvp": "对战模式",
-                                "mixed": "混战模式",
-                                "level": "关卡模式"
-                            }
-                            game_mode_name = game_mode_map.get(game_mode, "合作模式")
-                            
-                            # Update dropdown selection
-                            rect = self.game_mode_dropdown.relative_rect
-                            manager = self.game_mode_dropdown.ui_manager
-                            self.game_mode_dropdown.kill()
-                            self.game_mode_dropdown = UIDropDownMenu(
-                                options_list=["合作模式", "对战模式", "混战模式", "关卡模式"],
-                                starting_option=game_mode_name,
-                                relative_rect=rect,
-                                manager=manager
-                            )
-                            self.game_mode_dropdown.disable()
-                            
-                            # Update maps for this game mode
-                            self._update_maps_for_game_mode(game_mode)
+                    # Reset remote ready if disconnected
+                    if self.remote_ready:
+                        self.remote_ready = False
+                        self._update_ready_status()
                     
-                    elif event.get("type") == "ready_state":
-                        payload = event.get("payload")
-                        if payload is not None:
-                            self.remote_ready = payload.get("is_ready", False)
-                            self._update_ready_status()
+                    # Reset initial ready state flag when disconnected
+                    self._sent_initial_ready = False
+                    self._sent_name = False
+                    
+                    # Update connection status label if exists
+                    if hasattr(self, 'connection_status'):
+                        self.connection_status.set_text("状态: 连接断开")
+                        self.connection_status.colour = (255, 0, 0)  # Red for disconnected
 
     def handle_event(self, event: pygame.event.Event):
         super().handle_event(event)
@@ -1486,6 +1503,7 @@ class RoomScreen(BaseScreen):
                 if self.local_tank_id < 1: self.local_tank_id = 4
                 self._update_images()
                 if hasattr(self, 'network_manager'):
+                    print(f"[Room] 选择坦克: {self.local_tank_id} (is_host: {self.context.is_host})")
                     self.network_manager.send_lobby_update(self.local_tank_id)
                     
             elif event.ui_element == self.btn_next:
@@ -1493,6 +1511,7 @@ class RoomScreen(BaseScreen):
                 if self.local_tank_id > 4: self.local_tank_id = 1
                 self._update_images()
                 if hasattr(self, 'network_manager'):
+                    print(f"[Room] 选择坦克: {self.local_tank_id} (is_host: {self.context.is_host})")
                     self.network_manager.send_lobby_update(self.local_tank_id)
 
             elif event.ui_element == self.btn_ready:

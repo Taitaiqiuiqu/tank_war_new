@@ -272,7 +272,12 @@ class NetworkManager:
     def send_lobby_update(self, tank_id: int):
         """发送大厅更新（如坦克选择）"""
         if self.stats.connected and self._conn:
+            role = "Host" if self.stats.role == "host" else "Client"
+            print(f"[Network] {role} 发送坦克选择更新: tank_id={tank_id}")
             self._send_json(self._conn, {"type": "lobby_update", "payload": {"tank_id": tank_id}})
+        else:
+            role = "Host" if self.stats.role == "host" else "Client"
+            print(f"[Network] {role} 无法发送坦克选择更新: connected={self.stats.connected}, conn={self._conn is not None}")
 
     def send_map_selection(self, map_name: str):
         """发送地图选择更新"""

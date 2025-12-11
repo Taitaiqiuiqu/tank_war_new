@@ -1853,7 +1853,21 @@ class GameEngine:
                         pygame.mixer.stop()
                         self._play_game_over_video()
                         # 设置游戏结果并显示游戏结束屏幕
-                        self.screen_manager.context.game_won = self.game_world.winner == "player"
+                        # 根据游戏模式判断是否获胜
+                        winner = self.game_world.winner
+                        if self.multiplayer_game_mode == "pvp":
+                            # PvP模式：根据本地玩家ID判断是否获胜
+                            is_host = self.network_manager.stats.role == "host"
+                            local_player_key = "player1" if is_host else "player2"
+                            self.screen_manager.context.game_won = (winner == local_player_key)
+                        elif self.multiplayer_game_mode == "mixed":
+                            # 混战模式：根据本地玩家ID判断是否获胜
+                            is_host = self.network_manager.stats.role == "host"
+                            local_player_key = "player1" if is_host else "player2"
+                            self.screen_manager.context.game_won = (winner == local_player_key)
+                        else:
+                            # 合作模式和关卡模式：winner为"player"表示获胜
+                            self.screen_manager.context.game_won = (winner == "player")
                         # 通知屏幕管理器切换到游戏结束屏幕
                         self.screen_manager.set_state("game_over")
                         # 向客户端发送最终状态，避免客户端卡在旧画面
@@ -1890,6 +1904,7 @@ class GameEngine:
                     pygame.mixer.stop()
                     self._play_game_over_video()
                     # 设置游戏结果并显示游戏结束屏幕
+                    # 单机模式：winner为"player"表示获胜
                     self.screen_manager.context.game_won = self.game_world.winner == "player"
                     # 通知屏幕管理器切换到游戏结束屏幕
                     self.screen_manager.set_state("game_over")

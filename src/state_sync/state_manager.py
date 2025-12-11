@@ -163,7 +163,9 @@ class StateManager:
                 "time_limit": getattr(self.world, "time_limit", None),
                 "time_remaining": getattr(self.world, "time_remaining", None),
                 "score_target": getattr(self.world, "score_target", None),
-                "current_score": getattr(self.world, "current_score", None)
+                "current_score": getattr(self.world, "current_score", None),
+                # 添加混战模式得分同步
+                "player_scores": dict(getattr(self.world, "player_scores", {}))
             }
         }
 
@@ -369,6 +371,10 @@ class StateManager:
             self.world.time_remaining = meta.get("time_remaining")
             self.world.score_target = meta.get("score_target")
             self.world.current_score = meta.get("current_score")
+        
+        # 同步混战模式得分
+        if meta.get("player_scores"):
+            self.world.player_scores = dict(meta["player_scores"])
         
         # 7. Sync Props
         if hasattr(self.world, 'prop_manager'):
