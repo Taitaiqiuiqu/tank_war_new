@@ -1791,25 +1791,23 @@ class GameEngine:
                     # Store previous position for error calculation
                     prev_x, prev_y = self.player_tank.x, self.player_tank.y
                     
-                    # Apply movement based on current input state
+                    # 确保客户端模式（不执行权威逻辑，但需要预测性碰撞检测）
+                    self.game_world.is_client_mode = True
+                    
+                    # 应用移动输入
                     if self._movement_stack:
-                        # Get current movement direction
                         current_dir = self._movement_stack[-1]
                         if current_dir != -1:
-                            # Apply movement with same physics as server
                             self.player_tank.move(current_dir)
                         else:
                             self.player_tank.stop()
                     else:
                         self.player_tank.stop()
                     
-                    # Update tank physics (position, collision, etc.)
-                    # 注意：在客户端预测时，需要先进行预测性碰撞检测
-                    # 确保客户端模式（不执行权威逻辑，但需要预测性碰撞检测）
-                    self.game_world.is_client_mode = True
-                    # 先进行预测性碰撞检测（在移动前）
+                    # 进行预测性碰撞检测（在移动前检测，避免穿透）
                     self.game_world._check_collisions_predictive()
-                    # 然后更新坦克位置
+                    
+                    # 更新坦克位置（如果速度没有被碰撞检测清除）
                     self.player_tank.update()
                     
                     # Store prediction for later reconciliation
@@ -1927,21 +1925,26 @@ class GameEngine:
                 if self.current_state == "game" and not self.game_world.game_over:
                     # 确保服务端模式（执行权威逻辑）
                     self.game_world.is_client_mode = False
-                    # 应用本地主机的移动输入
+                    
+                    # 应用本地主机的移动输入（设置速度，但不立即更新位置）
                     self._apply_player_direction()
-                    # 更新本地玩家坦克的物理状态（应用移动后的碰撞检测等）
+                    
+                    # 更新敌人AI（必须在游戏世界更新之前，因为AI会调用move等方法）
+                    self._update_enemy_ai()
+                    
+                    # 先进行预测性碰撞检测（在移动前检测，避免穿透）
+                    self.game_world._check_collisions_predictive()
+                    
+                    # 然后更新所有坦克的物理状态（位置、动画等）
                     if self.player_tank and self.player_tank.active:
                         self.player_tank.update()
-                    # 更新客户端坦克的物理状态（应用移动后的碰撞检测等）
                     client_tank = next((t for t in self.game_world.tanks if t.tank_id == 2 and t.active), None)
                     if client_tank:
                         client_tank.update()
-                    # 更新敌人AI（必须在游戏世界更新之前，因为AI会调用move等方法）
-                    self._update_enemy_ai()
-                    # 更新所有敌人坦克的物理状态
                     for tank in self.game_world.tanks:
                         if tank.tank_type == "enemy" and tank.active:
                             tank.update()
+                    
                     # 更新游戏世界（处理碰撞、子弹等）
                     self.game_world.update()
                     

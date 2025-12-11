@@ -292,9 +292,12 @@ class Tank(GameObject):
         if self.level > config.MAX_LEVEL:
             self.level = config.MAX_LEVEL
             
-        # 应用等级效果
+        # 应用等级效果（确保初始等级时使用基础速度）
         if self.level >= config.LEVEL_1_THRESHOLD:
             self.speed = config.TANK_UPGRADED_SPEED # 速度提升
+        else:
+            # 初始等级（0）时使用基础速度
+            self.speed = config.TANK_BASE_SPEED
         if self.level >= config.LEVEL_2_THRESHOLD:
             self.steel_breaker = True
         if self.level >= config.LEVEL_3_THRESHOLD:

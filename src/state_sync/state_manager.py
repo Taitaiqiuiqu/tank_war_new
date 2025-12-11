@@ -226,9 +226,12 @@ class StateManager:
                     tank.shield_active = t_data.get("shield", False)
                     old_level = tank.level
                     new_level = t_data.get("level", 0)
+                    # 确保等级是有效的（初始等级应该是0）
+                    if new_level is None:
+                        new_level = 0
                     tank.level = new_level
-                    # 应用等级效果（如果等级变化）
-                    if new_level != old_level:
+                    # 应用等级效果（如果等级变化，或者首次同步）
+                    if new_level != old_level or old_level is None:
                         self._apply_level_effects(tank)
                     tank.has_boat = t_data.get("has_boat", False)
                     tank.is_on_river = t_data.get("is_on_river", False)
@@ -545,10 +548,11 @@ class StateManager:
         if tank.tank_type != 'player':
             return
         
-        # 应用速度效果
+        # 应用速度效果（确保初始等级时使用基础速度）
         if tank.level >= config.LEVEL_1_THRESHOLD:
             tank.speed = config.TANK_UPGRADED_SPEED
         else:
+            # 初始等级（0）时使用基础速度
             tank.speed = config.TANK_BASE_SPEED
         
         # 应用其他等级效果

@@ -285,6 +285,9 @@ class GameWorld:
     def _create_tank(self, tank_type: str, tank_id: int, spawn_pos: Tuple[int, int], skin_id: int) -> Tank:
         """内部方法：创建并添加坦克。"""
         tank = Tank(spawn_pos[0], spawn_pos[1], tank_type=tank_type, tank_id=tank_id, skin_id=skin_id)
+        # 确保初始速度正确（初始等级时使用基础速度）
+        if tank.level < config.LEVEL_1_THRESHOLD:
+            tank.speed = config.TANK_BASE_SPEED
         # 自动激活出生护盾
         tank.activate_shield()
         self.add_object(tank)
@@ -621,9 +624,18 @@ class GameWorld:
                     if hasattr(tank, 'has_boat') and tank.has_boat:
                         continue  # 有船可以穿过河流
                 
+                # 使用更精确的碰撞检测：检查预测位置是否与墙体碰撞
                 if next_rect.colliderect(wall.rect):
-                    # 阻止移动
+                    # 阻止移动（清除速度）
                     tank.stop()
+                    # 确保位置不会穿透
+                    if tank.rect.colliderect(wall.rect):
+                        # 如果当前位置已经碰撞，回退
+                        tank.x -= tank.velocity_x
+                        tank.y -= tank.velocity_y
+                        tank.rect.x = tank.x
+                        tank.rect.y = tank.y
+                    break  # 找到一个碰撞就停止
     
     def _check_collisions(self):
         """执行基础碰撞检测（子弹-坦克、子弹-墙）。"""
