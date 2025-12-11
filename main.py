@@ -38,7 +38,11 @@ def main():
     
     # 初始化视频管理器（如果还没有）
     if not hasattr(game.screen_manager.context, 'video_manager'):
-        video_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "videos"))
+        # 获取正确的视频路径，支持PyInstaller打包
+        if hasattr(sys, '_MEIPASS'):
+            video_dir = os.path.join(sys._MEIPASS, "videos")
+        else:
+            video_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "videos"))
         game.screen_manager.context.video_manager = VideoPlaybackController(video_dir)
     
     video_manager = game.screen_manager.context.video_manager

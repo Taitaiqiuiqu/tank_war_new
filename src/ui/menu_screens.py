@@ -1330,6 +1330,8 @@ class RoomScreen(BaseScreen):
                                 
                                 self.local_tank_id = self.context.player_tank_id
                                 
+                                # 标记即将进入游戏，避免 on_exit() 断开网络
+                                self.context._leaving_room_for_game = True
                                 self.context.next_state = "game"
                         
                         elif event.get("type") == "lobby_update":
@@ -1474,10 +1476,18 @@ class RoomScreen(BaseScreen):
         """清理房间屏幕资源"""
         super().on_exit()
         
-        # 清理网络连接（如果存在）
+        # 清理网络连接（如果存在且不是跳转到游戏/加载界面）
+        # 进入加载/游戏时需要保持连接，否则客户端会掉线
+        leave_for_game = getattr(self.context, "_leaving_room_for_game", False)
+        pending_state = getattr(self.context, "_pending_game_state", None)
         if hasattr(self, 'network_manager'):
-            print("[RoomScreen] 清理网络连接...")
-            self.network_manager.stop()
+            if leave_for_game or pending_state in ("game", "loading"):
+                print("[RoomScreen] 即将进入游戏，保留网络连接")
+            else:
+                print("[RoomScreen] 清理网络连接...")
+                self.network_manager.stop()
+        if hasattr(self.context, "_leaving_room_for_game"):
+            delattr(self.context, "_leaving_room_for_game")
         
         # 清理UI元素
         if hasattr(self, 'left_panel'):
@@ -1565,6 +1575,8 @@ class RoomScreen(BaseScreen):
                         level_number=level_number
                     )
                 
+                # 标记即将进入游戏，避免 on_exit() 断开网络
+                self.context._leaving_room_for_game = True
                 self.context.player_tank_id = self.local_tank_id
                 self.context.enemy_tank_id = self.remote_tank_id
                 self.context.selected_map = self.selected_map

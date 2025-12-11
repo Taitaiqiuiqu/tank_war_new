@@ -2,6 +2,7 @@
 资源管理器 - 统一管理游戏中的所有图片和音频资源
 """
 import os
+import sys
 import pygame
 from typing import Dict, List, Optional
 
@@ -22,7 +23,13 @@ class ResourceManager:
             return
         
         self._initialized = True
-        self.base_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        # 获取正确的资源路径，支持PyInstaller打包
+        if hasattr(sys, '_MEIPASS'):
+            # 打包后运行
+            self.base_path = sys._MEIPASS
+        else:
+            # 开发环境运行
+            self.base_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         
         # 图片缓存
         self.images: Dict[str, pygame.Surface] = {}

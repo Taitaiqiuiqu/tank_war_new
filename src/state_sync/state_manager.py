@@ -115,7 +115,13 @@ class StateManager:
             # We need to store original types to detect changes
             # For now, just send all wall types
             if wall.active:
-                changed_walls.append({"id": wall.wall_id, "type": wall.wall_type})
+                # 发送位置，用于客户端缺失墙体时创建
+                changed_walls.append({
+                    "id": wall.wall_id,
+                    "type": wall.wall_type,
+                    "x": getattr(wall, "x", None),
+                    "y": getattr(wall, "y", None)
+                })
                 
         # Sync Explosions
         explosions = []
@@ -201,6 +207,10 @@ class StateManager:
         """应用远端状态到本地世界"""
         if not self.world or not state:
             return
+        
+        # 去重未知墙体日志，避免刷屏
+        if not hasattr(self, "_unknown_wall_ids_logged"):
+            self._unknown_wall_ids_logged = set()
             
         # 1. Sync Tanks
         remote_tanks = {t["id"]: t for t in state.get("tanks", [])}
@@ -449,10 +459,30 @@ class StateManager:
                     wall.visible = True
             elif wall_id not in existing_wall_ids:
                 # 墙体不存在，可能是新生成的（基地强化时动态生成）
-                # 需要从服务端获取位置信息，但当前状态中没有位置信息
-                # 这种情况下，应该通过基地强化状态同步来处理
-                # 这里先跳过，由基地强化同步逻辑处理
-                print(f"[Client] 警告：收到未知墙体ID {wall_id}，类型 {new_type}，但缺少位置信息")
+                # 如果有位置数据则在客户端创建，否则保留一次性警告
+                wx = wall_data.get("x")
+                wy = wall_data.get("y")
+                if wx is not None and wy is not None:
+                    try:
+                        from src.utils.resource_manager import resource_manager
+                        new_wall = self.world.spawn_wall(wx, wy, wall_type=new_type, wall_id=wall_id)
+                        new_wall.image = resource_manager.get_wall_image(new_type)
+                        new_wall.active = True
+                        new_wall.visible = True
+                        if hasattr(self.world, "wall_id_map"):
+                            self.world.wall_id_map[wall_id] = new_wall
+                        print(f"[Client] 新建缺失墙体 ID={wall_id} type={new_type} @({wx},{wy})")
+                    except Exception as exc:
+                        if wall_id not in self._unknown_wall_ids_logged:
+                            print(f"[Client] 警告：创建缺失墙体 {wall_id} 失败: {exc}")
+                            if len(self._unknown_wall_ids_logged) < 256:
+                                self._unknown_wall_ids_logged.add(wall_id)
+                else:
+                    if wall_id not in self._unknown_wall_ids_logged:
+                        print(f"[Client] 警告：收到未知墙体ID {wall_id}，类型 {new_type}，但缺少位置信息")
+                        # 限制记录数量，防止集合无限增长
+                        if len(self._unknown_wall_ids_logged) < 256:
+                            self._unknown_wall_ids_logged.add(wall_id)
 
         # 4. Sync Explosions
         self.world.explosions.clear()

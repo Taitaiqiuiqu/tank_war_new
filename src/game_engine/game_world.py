@@ -293,8 +293,15 @@ class GameWorld:
         self.add_object(tank)
         
         # 记录坦克信息用于重生
+        # 如果是新创建的坦克（ID不在生命字典中），设置初始生命数
+        # 注意：重生的坦克在 _respawn_tank 中已经检查过生命数，这里只处理新创建的坦克
         if tank_id not in self.tank_lives:
-            self.tank_lives[tank_id] = config.TANK_DEFAULT_LIVES  # 默认3条命
+            # 根据坦克类型使用不同的生命数配置
+            if tank_type == "enemy":
+                self.tank_lives[tank_id] = config.ENEMY_TANK_DEFAULT_LIVES
+                print(f"[Create] 创建新敌人坦克 {tank_id}，初始生命数: {config.ENEMY_TANK_DEFAULT_LIVES}")
+            else:
+                self.tank_lives[tank_id] = config.TANK_DEFAULT_LIVES
         self.tank_info[tank_id] = {
             "type": tank_type,
             "skin_id": skin_id,
@@ -513,12 +520,29 @@ class GameWorld:
             # 处理坦克重生
             tank_id = obj.tank_id
             lives_left = self.tank_lives.get(tank_id, 0)
-            if tank_id in self.tank_lives:
-                self.tank_lives[tank_id] -= 1
-                lives_left = self.tank_lives[tank_id]
-                if self.tank_lives[tank_id] > 0:
-                    # 还有命，90帧后重生 (3秒)
-                    self.respawn_timers[tank_id] = config.RESPAWN_TIME
+            
+            # 如果坦克ID不在生命字典中，说明生命数未初始化，不应该重生
+            if tank_id not in self.tank_lives:
+                print(f"[Warning] 坦克 {tank_id} ({obj.tank_type}) 的生命数未初始化，跳过重生")
+                return
+            
+            # 减少生命数
+            old_lives = self.tank_lives[tank_id]
+            self.tank_lives[tank_id] -= 1
+            lives_left = self.tank_lives[tank_id]
+            
+            print(f"[Destroy] 坦克 {tank_id} ({obj.tank_type}) 被摧毁，生命数: {old_lives} -> {lives_left}")
+            
+            # 只有生命数大于0时才设置重生计时器
+            if self.tank_lives[tank_id] > 0:
+                # 还有命，90帧后重生 (3秒)
+                self.respawn_timers[tank_id] = config.RESPAWN_TIME
+                print(f"[Destroy] 坦克 {tank_id} 将在 {config.RESPAWN_TIME} 帧后重生")
+            else:
+                # 生命数已用完，清除重生计时器（如果存在）
+                if tank_id in self.respawn_timers:
+                    del self.respawn_timers[tank_id]
+                print(f"[Destroy] 坦克 {tank_id} 生命数已用完，不会重生")
 
             # 记录玩家被击败事件（用于触发视频）
             if obj.tank_type == "player":
@@ -553,6 +577,28 @@ class GameWorld:
             return
         
         info = self.tank_info[tank_id]
+        
+        # 检查坦克是否还有剩余生命数
+        current_lives = self.tank_lives.get(tank_id, 0)
+        if current_lives <= 0:
+            # 没有剩余生命数，不应该重生
+            print(f"[Respawn] 坦克 {tank_id} ({info['type']}) 生命数已用完 ({current_lives})，跳过重生")
+            # 确保清除重生计时器
+            if tank_id in self.respawn_timers:
+                del self.respawn_timers[tank_id]
+            return
+        
+        # 如果是敌人坦克，检查活跃敌人数量限制
+        if info["type"] == "enemy":
+            active_enemy_count = len([t for t in self.tanks if t.tank_type == "enemy" and t.active])
+            if active_enemy_count >= config.MAX_ACTIVE_ENEMIES:
+                # 已达到最大活跃敌人数量限制，延迟重生
+                # 将重生计时器重新设置为较短的时间，稍后重试
+                self.respawn_timers[tank_id] = 30  # 0.5秒后重试
+                print(f"[Respawn] 坦克 {tank_id} 达到活跃敌人数量限制 ({active_enemy_count}/{config.MAX_ACTIVE_ENEMIES})，延迟重生")
+                return
+        
+        print(f"[Respawn] 重生坦克 {tank_id} ({info['type']})，剩余生命数: {current_lives}")
         # 重新生成坦克，延迟生成以显示星星特效
         self.spawn_tank(
             tank_type=info["type"],

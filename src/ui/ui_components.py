@@ -142,8 +142,15 @@ class UIManagerWrapper:
 def get_chinese_font() -> str | None:
     """寻找可用的中文字体路径"""
     import os
+    import sys
     
-    fonts_dir = os.path.join(os.path.dirname(__file__), "fonts")
+    # 适配PyInstaller打包环境
+    if hasattr(sys, '_MEIPASS'):
+        # 当在打包后的环境运行时
+        fonts_dir = os.path.join(sys._MEIPASS, "src", "ui", "fonts")
+    else:
+        # 当在开发环境运行时
+        fonts_dir = os.path.join(os.path.dirname(__file__), "fonts")
     
     # 1) 优先使用项目内的像素中文字体（约定名）
     preferred_names = ["全小素.ttf", "pixel_chinese.ttf", "pixel-chinese.ttf", "pixel_cn.ttf"]
