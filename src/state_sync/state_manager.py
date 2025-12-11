@@ -200,7 +200,13 @@ class StateManager:
         
         # Update existing or spawn new
         for t_data in remote_tanks.values():
-            tid = t_data["id"]
+            tid = t_data.get("id")
+            if tid is None:
+                print("[StateManager] 警告：收到无效的坦克数据（缺少ID），跳过")
+                continue
+            
+            # 检查坦克是否活跃（非活跃坦克可能缺少位置信息）
+            is_active = t_data.get("active", True)
             
             # Find tank by ID
             tank = next((t for t in self.world.tanks if t.tank_id == tid), None)
@@ -209,7 +215,7 @@ class StateManager:
                 if local_player_id and tid == local_player_id:
                     # Only sync critical state that client can't predict
                     tank.health = t_data.get("hp", 100)
-                    tank.shield_active = t_data["shield"]
+                    tank.shield_active = t_data.get("shield", False)
                     old_level = tank.level
                     new_level = t_data.get("level", 0)
                     tank.level = new_level
@@ -221,78 +227,115 @@ class StateManager:
                     
                     # Special Case: Respawn / Teleport
                     # If tank was inactive (dead) and now active, OR position difference is huge -> Force Sync
-                    # Calculate distance squared
-                    dx = tank.x - t_data["x"]
-                    dy = tank.y - t_data["y"]
-                    dist_sq = dx*dx + dy*dy
-                    
-                    was_inactive = not tank.active
-                    is_teleport = dist_sq > 2500  # > 50 pixels diff (one grid size)
-                    
-                    if was_inactive or is_teleport:
-                        print(f"[Client] Local Player Respawn/Teleport detected! Force syncing pos. Dist: {dist_sq**0.5:.1f}")
-                        tank.x = t_data["x"]
-                        tank.y = t_data["y"]
-                        tank.direction = t_data["dir"]
-                        tank.rect.topleft = (tank.x, tank.y)
-                        tank.active = True
-                        tank.visible = True
+                    # 只有在坦克活跃且有位置信息时才进行位置同步
+                    if is_active and "x" in t_data and "y" in t_data:
+                        # Calculate distance squared
+                        dx = tank.x - t_data["x"]
+                        dy = tank.y - t_data["y"]
+                        dist_sq = dx*dx + dy*dy
+                        
+                        was_inactive = not tank.active
+                        is_teleport = dist_sq > 2500  # > 50 pixels diff (one grid size)
+                        
+                        if was_inactive or is_teleport:
+                            print(f"[Client] Local Player Respawn/Teleport detected! Force syncing pos. Dist: {dist_sq**0.5:.1f}")
+                            tank.x = t_data["x"]
+                            tank.y = t_data["y"]
+                            tank.direction = t_data.get("dir", tank.direction)
+                            tank.rect.topleft = (tank.x, tank.y)
+                            tank.active = True
+                            tank.visible = True
+                    elif not is_active:
+                        # 如果服务器标记为非活跃，同步状态
+                        tank.active = False
+                        tank.visible = False
                     
                     # Don't override position/direction for local player (client-side prediction) normally
                 else:
                     # For remote players: full state sync
-                    tank.x = t_data["x"]
-                    tank.y = t_data["y"]
-                    tank.direction = t_data["dir"]
-                    tank.shield_active = t_data["shield"]
-                    tank.rect.topleft = (tank.x, tank.y)
-                    
-                    # Update animation based on velocity
-                    vx = t_data.get("vx", 0)
-                    vy = t_data.get("vy", 0)
-                    is_moving = (vx != 0 or vy != 0)
-                    
-                    if is_moving:
-                        # Animate tank
-                        tank.animation_counter += 1
-                        if tank.animation_counter >= tank.animation_speed:
+                    # 检查是否有位置信息（活跃坦克应该有）
+                    if is_active and "x" in t_data and "y" in t_data:
+                        tank.x = t_data["x"]
+                        tank.y = t_data["y"]
+                        tank.direction = t_data.get("dir", tank.direction)
+                        tank.shield_active = t_data.get("shield", False)
+                        tank.rect.topleft = (tank.x, tank.y)
+                        
+                        # Update animation based on velocity (only for active tanks with position)
+                        vx = t_data.get("vx", 0)
+                        vy = t_data.get("vy", 0)
+                        is_moving = (vx != 0 or vy != 0)
+                        
+                        if is_moving:
+                            # Animate tank
+                            tank.animation_counter += 1
+                            if tank.animation_counter >= tank.animation_speed:
+                                tank.animation_counter = 0
+                                tank.animation_frame = (tank.animation_frame + 1) % len(tank.images[tank.direction])
+                            if tank.images[tank.direction]:
+                                tank.current_image = tank.images[tank.direction][tank.animation_frame]
+                        else:
+                            # Static tank
+                            tank.animation_frame = 0
                             tank.animation_counter = 0
-                            tank.animation_frame = (tank.animation_frame + 1) % len(tank.images[tank.direction])
-                        if tank.images[tank.direction]:
-                            tank.current_image = tank.images[tank.direction][tank.animation_frame]
+                            if tank.images[tank.direction]:
+                                tank.current_image = tank.images[tank.direction][0]
+                        
+                        # Sync tank level and boat state
+                        old_level = tank.level
+                        new_level = t_data.get("level", 0)
+                        tank.level = new_level
+                        # 应用等级效果（如果等级变化）
+                        if new_level != old_level:
+                            self._apply_level_effects(tank)
+                        tank.has_boat = t_data.get("has_boat", False)
+                        tank.is_on_river = t_data.get("is_on_river", False)
+                        
+                        # Mark as active/visible
+                        tank.active = True
+                        tank.visible = True
                     else:
-                        # Static tank
-                        tank.animation_frame = 0
-                        tank.animation_counter = 0
-                        if tank.images[tank.direction]:
-                            tank.current_image = tank.images[tank.direction][0]
-                    
-                    # Sync tank level and boat state
-                    old_level = tank.level
-                    new_level = t_data.get("level", 0)
-                    tank.level = new_level
-                    # 应用等级效果（如果等级变化）
-                    if new_level != old_level:
-                        self._apply_level_effects(tank)
-                    tank.has_boat = t_data.get("has_boat", False)
-                    tank.is_on_river = t_data.get("is_on_river", False)
-                
-                # Always mark as active if in remote state
-                tank.active = True
-                tank.visible = True
+                        # 非活跃坦克或缺少位置信息，只更新状态
+                        tank.shield_active = t_data.get("shield", False)
+                        tank.active = is_active
+                        tank.visible = is_active
+                        # 即使非活跃，也同步等级和船状态（如果存在）
+                        if "level" in t_data:
+                            old_level = tank.level
+                            new_level = t_data.get("level", 0)
+                            tank.level = new_level
+                            if new_level != old_level:
+                                self._apply_level_effects(tank)
+                        tank.has_boat = t_data.get("has_boat", False)
+                        tank.is_on_river = t_data.get("is_on_river", False)
             else:
                 # Spawn new tank
-                new_tank = self.world.spawn_tank(t_data["type"], tid, (t_data["x"], t_data["y"]), skin_id=t_data.get("skin", 1))
-                new_tank.direction = t_data["dir"]
-                # 同步等级并应用效果
-                new_tank.level = t_data.get("level", 0)
-                self._apply_level_effects(new_tank)
-                # 同步其他状态
-                new_tank.has_boat = t_data.get("has_boat", False)
-                new_tank.is_on_river = t_data.get("is_on_river", False)
-                new_tank.shield_active = t_data.get("shield", False)
-                if new_tank.images[new_tank.direction]:
-                    new_tank.current_image = new_tank.images[new_tank.direction][0]
+                # 检查是否有必要的位置信息
+                if not is_active or "x" not in t_data or "y" not in t_data:
+                    print(f"[StateManager] 警告：无法生成坦克 {tid}，缺少位置信息或坦克非活跃")
+                    continue
+                
+                tank_type = t_data.get("type", "player")
+                spawn_pos = (t_data["x"], t_data["y"])
+                skin_id = t_data.get("skin", 1)
+                
+                try:
+                    new_tank = self.world.spawn_tank(tank_type, tid, spawn_pos, skin_id=skin_id)
+                    new_tank.direction = t_data.get("dir", 0)
+                    # 同步等级并应用效果
+                    new_tank.level = t_data.get("level", 0)
+                    self._apply_level_effects(new_tank)
+                    # 同步其他状态
+                    new_tank.has_boat = t_data.get("has_boat", False)
+                    new_tank.is_on_river = t_data.get("is_on_river", False)
+                    new_tank.shield_active = t_data.get("shield", False)
+                    if new_tank.images[new_tank.direction]:
+                        new_tank.current_image = new_tank.images[new_tank.direction][0]
+                except Exception as exc:
+                    print(f"[StateManager] 生成坦克 {tid} 时出错: {exc}")
+                    import traceback
+                    traceback.print_exc()
+                    continue
         
         # Disable missing tanks (including local player if dead!)
         for tank in self.world.tanks:
