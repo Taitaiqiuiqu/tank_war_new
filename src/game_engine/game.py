@@ -1872,6 +1872,15 @@ class GameEngine:
                             tank.update()
                     # 更新游戏世界（处理碰撞、子弹等）
                     self.game_world.update()
+                    
+                    # 在消费事件之前，先让状态管理器捕获事件（用于同步到客户端）
+                    # 这样确保事件在清空之前被捕获
+                    if hasattr(self.state_manager, 'world') and self.state_manager.world:
+                        self.state_manager._captured_events = []
+                        if hasattr(self.game_world, 'events'):
+                            self.state_manager._captured_events = list(self.game_world.events)
+                    
+                    # 消费事件（触发本地视频播放等效果）
                     self._consume_game_events()
                     
                     # 更新关卡模式特殊条件
@@ -1998,17 +2007,24 @@ class GameEngine:
     # ------------------------------------------------------------------ #
     def _consume_game_events(self):
         events = self.game_world.consume_events()
+        if events:
+            role = getattr(self.network_manager.stats, 'role', 'standalone') if hasattr(self, 'network_manager') and self.enable_network else 'standalone'
+            print(f"[{role.capitalize()}] 消费 {len(events)} 个事件: {[e.get('type', 'unknown') for e in events]}")
+        
         for event in events:
             etype = event.get("type")
             data = event.get("data", {}) or {}
             if etype == "grenade_pickup":
+                print(f"[Event] 触发手榴弹视频播放")
                 self.video_manager.play("grenade_pickup")
             elif etype == "player_killed_by_enemy":
                 pos = data.get("position")
+                print(f"[Event] 触发玩家被击败视频播放，位置: {pos}")
                 self.video_manager.play("player_killed_by_enemy", position=pos)
             elif etype == "player_life_depleted":
                 depleted_id = data.get("tank_id")
                 pos = self._get_teammate_focus_position(depleted_id)
+                print(f"[Event] 触发队友生命耗尽视频播放，位置: {pos}")
                 self.video_manager.play("teammate_out_of_lives", position=pos)
             elif etype == "prop_pickup":
                 # 播放道具拾取音效（客户端也能听到）

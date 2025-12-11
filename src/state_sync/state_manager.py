@@ -39,9 +39,12 @@ class StateManager:
             self.pending_remote_state = None
         # Capture events before they're consumed by game engine
         # This ensures events are synced even if they're consumed in the same frame
-        self._captured_events = []
-        if hasattr(self.world, 'events'):
-            self._captured_events = list(self.world.events)
+        # Note: For host, events should be captured BEFORE _consume_game_events() is called
+        # If _captured_events is already set (by game engine), use it; otherwise capture now
+        if not hasattr(self, '_captured_events') or not self._captured_events:
+            self._captured_events = []
+            if hasattr(self.world, 'events'):
+                self._captured_events = list(self.world.events)
         self.latest_snapshot = self.encode_state()
 
     def encode_state(self) -> dict:
@@ -154,6 +157,10 @@ class StateManager:
         if not events and hasattr(self.world, 'events'):
             # Fallback: if capture didn't work, try to get current events
             events = list(self.world.events)
+        
+        # Debug: log events being synced (only for host)
+        if len(events) > 0 and hasattr(self.world, 'is_client_mode') and not self.world.is_client_mode:
+            print(f"[Host] 同步 {len(events)} 个事件到客户端: {[e.get('type', 'unknown') for e in events]}")
 
         return {
             "ts": time.time(),
@@ -423,6 +430,8 @@ class StateManager:
         if remote_events and hasattr(self.world, 'events'):
             # Append remote events to world's event queue
             # These will be consumed by game engine's _consume_game_events()
+            if len(remote_events) > 0:
+                print(f"[Client] 接收到 {len(remote_events)} 个事件: {[e.get('type', 'unknown') for e in remote_events]}")
             for event in remote_events:
                 self.world.events.append(event)
 
