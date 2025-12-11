@@ -1,5 +1,6 @@
 import os
 import threading
+import atexit
 from typing import Dict, List, Optional, Tuple
 
 import pygame
@@ -93,10 +94,15 @@ class VideoPlaybackController:
         self._moviepy_error_logged = False
         self.debug = bool(int(os.environ.get("VIDEO_DEBUG", "0")))
         self._preload_started = False
+        self._load_lock = threading.Lock()  # 保护资源加载的线程锁
+        self._loading_flags: Dict[str, threading.Event] = {}  # 跟踪正在加载的资源
+        self._temp_files: List[str] = []  # 跟踪临时文件以便清理
         self._ensure_backend()
         # 为视频音频预留混音通道，确保有可用通道
         if pygame.mixer.get_init() and pygame.mixer.get_num_channels() < 16:
             pygame.mixer.set_num_channels(16)
+        # 注册清理函数
+        atexit.register(self._cleanup_temp_files)
 
     def _ensure_backend(self):
         """尝试加载 moviepy 后端，失败则使用占位帧。"""
@@ -130,49 +136,127 @@ class VideoPlaybackController:
         return surface
 
     def _load_asset(self, filename: str, fps_limit: int = 15) -> VideoAsset:
+        # 如果已经加载，直接返回
         if filename in self.assets:
             return self.assets[filename]
 
-        path = os.path.join(self.video_dir, filename)
-        frames: List[pygame.Surface] = []
-        placeholder = False
-        audio_sound = None
+        # 检查是否正在加载（避免重复加载）
+        with self._load_lock:
+            if filename in self._loading_flags:
+                # 等待其他线程完成加载
+                loading_event = self._loading_flags[filename]
+                self._load_lock.release()
+                try:
+                    loading_event.wait(timeout=30.0)  # 最多等待30秒
+                    # 加载完成后再次检查
+                    if filename in self.assets:
+                        return self.assets[filename]
+                finally:
+                    self._load_lock.acquire()
+            
+            # 标记为正在加载
+            loading_event = threading.Event()
+            self._loading_flags[filename] = loading_event
 
-        if self._moviepy_ready and os.path.exists(path):
-            try:
-                clip = self._moviepy.VideoFileClip(path)
-                target_fps = min(fps_limit, int(clip.fps) if clip.fps else fps_limit)
-                for frame in clip.iter_frames(fps=target_fps, dtype="uint8"):
-                    surf = pygame.image.frombuffer(frame.tobytes(), frame.shape[1::-1], "RGB")
-                    frames.append(surf.convert())
-                if self.debug:
-                    print(f"[Video] Loaded {filename}: {len(frames)} frames @ {target_fps}fps, size={frames[0].get_size()}")
+        try:
+            path = os.path.join(self.video_dir, filename)
+            frames: List[pygame.Surface] = []
+            placeholder = False
+            audio_sound = None
+            tmp_path = None
+            clip = None
 
-                # 尝试提取音频为临时 wav，并加载为 pygame Sound
-                if clip.audio is not None:
-                    import tempfile
-
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmpf:
-                        tmp_path = tmpf.name
+            if self._moviepy_ready and os.path.exists(path):
+                try:
+                    clip = self._moviepy.VideoFileClip(path)
+                    target_fps = min(fps_limit, int(clip.fps) if clip.fps else fps_limit)
+                    
+                    # 先提取所有帧数据（在后台线程中）
+                    frame_data_list = []
+                    for frame in clip.iter_frames(fps=target_fps, dtype="uint8"):
+                        frame_data_list.append(frame)
+                    
+                    # 在主线程中创建 pygame Surface（pygame 不是线程安全的）
+                    # 如果当前在后台线程，我们需要延迟到主线程处理
+                    # 但为了简化，我们假设 pygame 操作在主线程或使用锁保护
                     try:
-                        clip.audio.write_audiofile(tmp_path, fps=44100, logger=None)
-                        audio_sound = pygame.mixer.Sound(tmp_path)
-                        if self.debug:
-                            print(f"[Video] Loaded audio for {filename}: {tmp_path}")
+                        for frame_data in frame_data_list:
+                            surf = pygame.image.frombuffer(frame_data.tobytes(), frame_data.shape[1::-1], "RGB")
+                            frames.append(surf.convert())
+                        
+                        if self.debug and frames:
+                            print(f"[Video] Loaded {filename}: {len(frames)} frames @ {target_fps}fps, size={frames[0].get_size()}")
+
+                        # 尝试提取音频为临时 wav，并加载为 pygame Sound
+                        if clip.audio is not None:
+                            import tempfile
+
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmpf:
+                                tmp_path = tmpf.name
+                            
+                            try:
+                                # 使用 logger=None 来禁用输出
+                                clip.audio.write_audiofile(tmp_path, fps=44100, logger=None)
+                                # 将临时文件路径保存以便后续清理
+                                with self._load_lock:
+                                    self._temp_files.append(tmp_path)
+                                audio_sound = pygame.mixer.Sound(tmp_path)
+                                if self.debug:
+                                    print(f"[Video] Loaded audio for {filename}: {tmp_path}")
+                            except Exception as exc:
+                                if self.debug:
+                                    print(f"[Video] Audio load failed for {filename}: {exc}")
+                                # 清理失败的临时文件
+                                if tmp_path and os.path.exists(tmp_path):
+                                    try:
+                                        os.unlink(tmp_path)
+                                    except Exception:
+                                        pass
+                                tmp_path = None
                     except Exception as exc:
                         if self.debug:
-                            print(f"[Video] Audio load failed for {filename}: {exc}")
-            except Exception as exc:  # pragma: no cover - 依赖外部环境
-                print(f"[Video] 加载视频失败 {filename}: {exc}")
+                            print(f"[Video] Failed to create pygame surfaces for {filename}: {exc}")
+                        frames.clear()
+                        frames.append(self._make_placeholder(filename))
+                        placeholder = True
+                except Exception as exc:  # pragma: no cover - 依赖外部环境
+                    print(f"[Video] 加载视频失败 {filename}: {exc}")
+                    frames.append(self._make_placeholder(filename))
+                    placeholder = True
+                finally:
+                    # 确保 clip 被正确关闭
+                    if clip is not None:
+                        try:
+                            clip.close()
+                        except Exception:
+                            pass
+            else:
                 frames.append(self._make_placeholder(filename))
                 placeholder = True
-        else:
-            frames.append(self._make_placeholder(filename))
-            placeholder = True
 
-        asset = VideoAsset(filename, frames, fps_limit if frames else 1, placeholder=placeholder, audio=audio_sound)
-        self.assets[filename] = asset
-        return asset
+            asset = VideoAsset(filename, frames, fps_limit if frames else 1, placeholder=placeholder, audio=audio_sound)
+            
+            # 保存资源并通知等待的线程
+            with self._load_lock:
+                self.assets[filename] = asset
+                if filename in self._loading_flags:
+                    del self._loading_flags[filename]
+                loading_event.set()
+            
+            return asset
+        except Exception as exc:
+            print(f"[Video] 加载资源时发生错误 {filename}: {exc}")
+            # 创建占位资源
+            frames = [self._make_placeholder(filename)]
+            asset = VideoAsset(filename, frames, 1, placeholder=True, audio=None)
+            
+            with self._load_lock:
+                self.assets[filename] = asset
+                if filename in self._loading_flags:
+                    del self._loading_flags[filename]
+                loading_event.set()
+            
+            return asset
 
     def preload_all(self, async_load: bool = True):
         """
@@ -302,4 +386,14 @@ class VideoPlaybackController:
             y = (sh - target_h) // 3  # 略微靠上，避免挡 UI
 
         return pygame.Rect(x, y, target_w, target_h)
+
+    def _cleanup_temp_files(self):
+        """清理所有临时音频文件"""
+        for tmp_path in self._temp_files:
+            try:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+            except Exception:
+                pass
+        self._temp_files.clear()
 

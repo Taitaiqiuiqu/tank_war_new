@@ -190,7 +190,12 @@ class StateManager:
                     # Only sync critical state that client can't predict
                     tank.health = t_data.get("hp", 100)
                     tank.shield_active = t_data["shield"]
-                    tank.level = t_data.get("level", 0)
+                    old_level = tank.level
+                    new_level = t_data.get("level", 0)
+                    tank.level = new_level
+                    # 应用等级效果（如果等级变化）
+                    if new_level != old_level:
+                        self._apply_level_effects(tank)
                     tank.has_boat = t_data.get("has_boat", False)
                     tank.is_on_river = t_data.get("is_on_river", False)
                     
@@ -243,7 +248,12 @@ class StateManager:
                             tank.current_image = tank.images[tank.direction][0]
                     
                     # Sync tank level and boat state
-                    tank.level = t_data.get("level", 0)
+                    old_level = tank.level
+                    new_level = t_data.get("level", 0)
+                    tank.level = new_level
+                    # 应用等级效果（如果等级变化）
+                    if new_level != old_level:
+                        self._apply_level_effects(tank)
                     tank.has_boat = t_data.get("has_boat", False)
                     tank.is_on_river = t_data.get("is_on_river", False)
                 
@@ -254,6 +264,13 @@ class StateManager:
                 # Spawn new tank
                 new_tank = self.world.spawn_tank(t_data["type"], tid, (t_data["x"], t_data["y"]), skin_id=t_data.get("skin", 1))
                 new_tank.direction = t_data["dir"]
+                # 同步等级并应用效果
+                new_tank.level = t_data.get("level", 0)
+                self._apply_level_effects(new_tank)
+                # 同步其他状态
+                new_tank.has_boat = t_data.get("has_boat", False)
+                new_tank.is_on_river = t_data.get("is_on_river", False)
+                new_tank.shield_active = t_data.get("shield", False)
                 if new_tank.images[new_tank.direction]:
                     new_tank.current_image = new_tank.images[new_tank.direction][0]
         
@@ -386,4 +403,26 @@ class StateManager:
             for prop_data in state.get("props", []):
                 prop = Prop(prop_data["x"], prop_data["y"], prop_data["type"])
                 self.world.prop_manager.props.add(prop)
+
+    def _apply_level_effects(self, tank):
+        """根据坦克等级应用效果（速度、能力等）"""
+        from src.config.game_config import config
+        if tank.tank_type != 'player':
+            return
+        
+        # 应用速度效果
+        if tank.level >= config.LEVEL_1_THRESHOLD:
+            tank.speed = config.TANK_UPGRADED_SPEED
+        else:
+            tank.speed = config.TANK_BASE_SPEED
+        
+        # 应用其他等级效果
+        tank.steel_breaker = (tank.level >= config.LEVEL_2_THRESHOLD)
+        tank.grass_cutter = (tank.level >= config.LEVEL_3_THRESHOLD)
+        
+        # 重新加载图片以反映等级变化
+        if hasattr(tank, '_load_tank_images'):
+            tank.images = tank._load_tank_images()
+            if tank.images and tank.images.get(tank.direction):
+                tank.current_image = tank.images[tank.direction][0]
 
