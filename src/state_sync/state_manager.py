@@ -190,7 +190,10 @@ class StateManager:
                 "score_target": getattr(self.world, "score_target", None),
                 "current_score": getattr(self.world, "current_score", None),
                 # 添加混战模式得分同步
-                "player_scores": dict(getattr(self.world, "player_scores", {}))
+                "player_scores": dict(getattr(self.world, "player_scores", {})),
+                # 同步基地强化状态（用于铲子道具效果）
+                "fortify_base_timer": getattr(self.world, "fortify_base_timer", 0),
+                "base_fortified": getattr(self.world, "base_fortified", False)
             }
         }
 
@@ -256,6 +259,14 @@ class StateManager:
                         tank.visible = False
                     
                     # Don't override position/direction for local player (client-side prediction) normally
+                    # 但对于本地玩家，仍然需要同步等级和速度（但不覆盖位置）
+                    if "level" in t_data:
+                        old_level = tank.level
+                        new_level = t_data.get("level", 0)
+                        if new_level != old_level:
+                            tank.level = new_level
+                            # 应用等级效果（包括速度）
+                            self._apply_level_effects(tank)
                 else:
                     # For remote players: full state sync
                     # 检查是否有位置信息（活跃坦克应该有）
@@ -399,7 +410,10 @@ class StateManager:
                 wall.visible = True
         
         # Apply wall type changes (for Shovel effect)
+        # 同时处理新生成的墙体（基地强化时动态生成的钢墙）
         c_walls = state.get("c_walls", [])
+        existing_wall_ids = {w.wall_id for w in self.world.walls if hasattr(w, 'wall_id') and w.wall_id is not None}
+        
         for wall_data in c_walls:
             wall_id = wall_data.get("id")  # 使用ID而非idx
             new_type = wall_data.get("type")
@@ -415,11 +429,21 @@ class StateManager:
                 # 回退：遍历查找（兼容旧代码）
                 wall = next((w for w in self.world.walls if hasattr(w, 'wall_id') and w.wall_id == wall_id), None)
             
-            if wall and wall.wall_type != new_type:
-                wall.wall_type = new_type
-                # Reload wall image
-                from src.utils.resource_manager import resource_manager
-                wall.image = resource_manager.get_wall_image(new_type)
+            if wall:
+                # 墙体已存在，更新类型
+                if wall.wall_type != new_type:
+                    wall.wall_type = new_type
+                    # Reload wall image
+                    from src.utils.resource_manager import resource_manager
+                    wall.image = resource_manager.get_wall_image(new_type)
+                    wall.active = True
+                    wall.visible = True
+            elif wall_id not in existing_wall_ids:
+                # 墙体不存在，可能是新生成的（基地强化时动态生成）
+                # 需要从服务端获取位置信息，但当前状态中没有位置信息
+                # 这种情况下，应该通过基地强化状态同步来处理
+                # 这里先跳过，由基地强化同步逻辑处理
+                print(f"[Client] 警告：收到未知墙体ID {wall_id}，类型 {new_type}，但缺少位置信息")
 
         # 4. Sync Explosions
         self.world.explosions.clear()
@@ -477,6 +501,21 @@ class StateManager:
         # 同步混战模式得分
         if meta.get("player_scores"):
             self.world.player_scores = dict(meta["player_scores"])
+        
+        # 同步基地强化状态（用于铲子道具效果）
+        if "fortify_base_timer" in meta:
+            self.world.fortify_base_timer = meta["fortify_base_timer"]
+        if "base_fortified" in meta:
+            # 如果服务端显示基地已强化，但客户端未强化，需要应用强化效果
+            server_fortified = meta["base_fortified"]
+            if server_fortified and not self.world.base_fortified:
+                # 服务端已强化，客户端未强化，需要同步
+                print("[Client] 同步基地强化状态：应用强化效果")
+                self.world._fortify_base()
+            elif not server_fortified and self.world.base_fortified:
+                # 服务端未强化，客户端已强化，需要恢复
+                print("[Client] 同步基地强化状态：恢复原始状态")
+                self.world._restore_base()
         
         # 7. Sync Props
         if hasattr(self.world, 'prop_manager'):

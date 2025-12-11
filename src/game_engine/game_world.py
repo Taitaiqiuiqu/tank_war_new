@@ -358,6 +358,13 @@ class GameWorld:
     # ----------------------------------------------------------------------
     def update(self):
         """更新游戏世界。"""
+        # 客户端模式下不执行碰撞检测（由服务端权威控制）
+        # 但需要先进行预测性碰撞检测（在移动前），避免穿透
+        if not self.is_client_mode:
+            # 先进行预测性碰撞检测（在移动前）
+            self._check_collisions_predictive()
+        
+        # 然后更新所有对象位置
         for obj in list(self.game_objects):
             if obj.active:
                 obj.update()
@@ -420,7 +427,8 @@ class GameWorld:
             else:
                 tank.is_on_river = False
 
-        self._check_collisions()
+        # 碰撞检测已在移动前完成（预测性检测）
+        # 这里只进行边界检查和游戏状态检查
         self._check_game_status()
 
     def render(self, screen):
@@ -565,29 +573,55 @@ class GameWorld:
             if hasattr(obj, "stop"):
                 obj.stop()
 
-    def _check_collisions(self):
-        """执行基础碰撞检测（坦克-坦克、坦克-墙、子弹-坦克、子弹-墙）。"""
-        # 坦克 vs 坦克
+    def _check_collisions_predictive(self):
+        """执行预测性碰撞检测（在移动前检测，避免穿透）。"""
+        # 1. 坦克 vs 坦克（预测性检测）
         for idx, tank in enumerate(self.tanks):
-            if not tank.active:
+            if not tank.active or (tank.velocity_x == 0 and tank.velocity_y == 0):
                 continue
+            # 预测坦克下一帧位置
+            next_x = tank.x + tank.velocity_x
+            next_y = tank.y + tank.velocity_y
+            next_rect = pygame.Rect(next_x, next_y, tank.width, tank.height)
+            
             for other in self.tanks[idx + 1 :]:
                 if not other.active:
                     continue
-                if tank.rect.colliderect(other.rect):
-                    tank.handle_collision(other)
-                    other.handle_collision(tank)
+                # 预测其他坦克下一帧位置
+                other_next_x = other.x + other.velocity_x
+                other_next_y = other.y + other.velocity_y
+                other_next_rect = pygame.Rect(other_next_x, other_next_y, other.width, other.height)
+                
+                if next_rect.colliderect(other_next_rect):
+                    # 阻止移动
+                    tank.stop()
+                    other.stop()
 
-        # 坦克 vs 墙
+        # 2. 坦克 vs 墙（预测性检测）
         for tank in self.tanks:
-            if not tank.active:
+            if not tank.active or (tank.velocity_x == 0 and tank.velocity_y == 0):
                 continue
+            # 预测坦克下一帧位置
+            next_x = tank.x + tank.velocity_x
+            next_y = tank.y + tank.velocity_y
+            next_rect = pygame.Rect(next_x, next_y, tank.width, tank.height)
+            
             for wall in self.walls:
                 if not wall.active or wall.passable:
                     continue
-                if tank.rect.colliderect(wall.rect):
-                    tank.handle_collision(wall)
-                    wall.handle_collision(tank)
+                # 检查是否与墙体碰撞（考虑河流和船）
+                if hasattr(wall, 'wall_type') and wall.wall_type == Wall.RIVER:
+                    # 河流：检查坦克是否有船
+                    if hasattr(tank, 'has_boat') and tank.has_boat:
+                        continue  # 有船可以穿过河流
+                
+                if next_rect.colliderect(wall.rect):
+                    # 阻止移动
+                    tank.stop()
+    
+    def _check_collisions(self):
+        """执行基础碰撞检测（子弹-坦克、子弹-墙）。"""
+        # 注意：坦克碰撞已在移动前通过预测性检测处理
 
         # 子弹 vs 坦克
         for bullet in list(self.bullets):
@@ -616,10 +650,7 @@ class GameWorld:
                 if bullet.rect.colliderect(wall.rect):
                     bullet.handle_collision(wall)
                     wall.handle_collision(bullet)
-                    break
-
-                    wall.handle_collision(bullet)
-                    break
+                    break  # 子弹只能击中一个目标
         
         # 玩家 vs 道具
         # 注意：在客户端模式下，不执行道具效果（只显示道具被拾取）

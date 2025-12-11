@@ -261,17 +261,21 @@ class Tank(GameObject):
             other: 碰撞的另一个游戏对象
         """
         # 如果碰到墙壁或其他坦克，停止移动
-        if isinstance(other, Tank) or hasattr(other, 'is_wall') and other.is_wall:
+        if isinstance(other, Tank) or (hasattr(other, 'is_wall') and other.is_wall):
             # 如果是墙体，检查是否是河流且有船
             if hasattr(other, 'wall_type') and other.wall_type == 4 and self.has_boat:
                 # 允许通过河流
                 return
 
-            # 回退一步，防止穿透
-            self.x -= self.velocity_x
-            self.y -= self.velocity_y
-            self.rect.x = self.x
-            self.rect.y = self.y
+            # 停止移动（预测性检测已阻止移动，但如果已经移动了需要回退）
+            # 检查当前位置是否已经穿透
+            if hasattr(other, 'rect'):
+                if self.rect.colliderect(other.rect):
+                    # 已经穿透，需要回退
+                    self.x -= self.velocity_x
+                    self.y -= self.velocity_y
+                    self.rect.x = self.x
+                    self.rect.y = self.y
             self.stop()
         
         # 如果被子弹击中
