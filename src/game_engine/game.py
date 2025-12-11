@@ -1283,10 +1283,19 @@ class GameEngine:
             
             # Load walls with offset
             walls = map_data.get('walls', [])
-            for wall in walls:
+            # 按照固定顺序加载墙体，确保客户端和服务端使用相同的ID
+            # 按照坐标排序（先y后x），确保加载顺序一致
+            sorted_walls = sorted(walls, key=lambda w: (w.get('y', 0), w.get('x', 0)))
+            
+            # 重置墙体ID计数器，确保从1开始
+            self.game_world.next_wall_id = 1
+            self.game_world.wall_id_map.clear()
+            
+            for wall in sorted_walls:
                 x = wall.get('x', 0) + offset_x
                 y = wall.get('y', 0) + offset_y
                 wall_type = wall.get('type', 0)
+                # 不指定wall_id，让系统自动分配（按顺序）
                 self.game_world.spawn_wall(x, y, wall_type)
         else:
             # Use default map
@@ -1313,41 +1322,56 @@ class GameEngine:
             ))
 
             # 使用50x50网格创建地图布局
+            # 重要：按照固定顺序生成墙体，确保客户端和服务端使用相同的ID
+            # 重置墙体ID计数器
+            self.game_world.next_wall_id = 1
+            self.game_world.wall_id_map.clear()
+            
+            # 收集所有墙体数据，然后按坐标排序
+            default_walls = []
+            
             # 中间一排砖墙（第6行，y=300）
             for col in range(4, 12):  # 列4-11
                 x = col * grid_size
                 y = 6 * grid_size
-                self.game_world.spawn_wall(x, y, Wall.BRICK)
+                default_walls.append((x, y, Wall.BRICK))
             
             # 左侧钢墙（列1）
-            for row in range(2, 10):  # 衁2-9
+            for row in range(2, 10):  # 行2-9
                 x = 1 * grid_size
                 y = row * grid_size
-                self.game_world.spawn_wall(x, y, Wall.STEEL)
+                default_walls.append((x, y, Wall.STEEL))
             
             # 右侧钢墙（列14）
-            for row in range(2, 10):  # 衁2-9
+            for row in range(2, 10):  # 行2-9
                 x = 14 * grid_size
                 y = row * grid_size
-                self.game_world.spawn_wall(x, y, Wall.STEEL)
+                default_walls.append((x, y, Wall.STEEL))
             
-            # 添加一些草地（列7-8，衁4-5）
+            # 添加一些草地（列7-8，行4-5）
             for col in range(7, 9):
                 for row in range(4, 6):
                     x = col * grid_size
                     y = row * grid_size
-                    self.game_world.spawn_wall(x, y, Wall.GRASS)
+                    default_walls.append((x, y, Wall.GRASS))
             
             # 添加河流（列10，行3-8）
             for row in range(3, 9):
                 x = 10 * grid_size
                 y = row * grid_size
-                self.game_world.spawn_wall(x, y, Wall.RIVER)
+                default_walls.append((x, y, Wall.RIVER))
             
             # 添加基地（老鹰）在底部中央
             base_x = (self.screen_width // 2) - 25  # 居中
             base_y = self.screen_height - 100  # 底部
-            self.game_world.spawn_wall(base_x, base_y, Wall.BASE)
+            default_walls.append((base_x, base_y, Wall.BASE))
+            
+            # 按照坐标排序（先y后x），确保加载顺序一致
+            default_walls.sort(key=lambda w: (w[1], w[0]))
+            
+            # 按顺序生成墙体
+            for x, y, wall_type in default_walls:
+                self.game_world.spawn_wall(x, y, wall_type)
 
     def setup_multiplayer_world(self, p1_tank_id, p2_tank_id, map_name="default", game_mode="coop", level_number=None):
         """初始化联机模式对象
@@ -1589,50 +1613,75 @@ class GameEngine:
             self.local_player_id = 2
         
         # Load map walls
+        # 重要：按照固定顺序加载墙体，确保客户端和服务端使用相同的ID
         if map_data:
             walls = map_data.get('walls', [])
-            for wall in walls:
+            # 按照坐标排序（先y后x），确保加载顺序一致
+            # 这样客户端和服务端会分配相同的墙体ID
+            sorted_walls = sorted(walls, key=lambda w: (w.get('y', 0), w.get('x', 0)))
+            
+            # 重置墙体ID计数器，确保从1开始
+            self.game_world.next_wall_id = 1
+            self.game_world.wall_id_map.clear()
+            
+            for wall in sorted_walls:
                 x = wall.get('x', 0) + offset_x
                 y = wall.get('y', 0) + offset_y
                 wall_type = wall.get('type', 0)
+                # 不指定wall_id，让系统自动分配（按顺序）
                 self.game_world.spawn_wall(x, y, wall_type)
         else:
             # Default Map
+            # 重要：按照固定顺序生成墙体，确保客户端和服务端使用相同的ID
+            # 重置墙体ID计数器
+            self.game_world.next_wall_id = 1
+            self.game_world.wall_id_map.clear()
+            
+            # 收集所有墙体数据，然后按坐标排序
+            default_walls = []
+            
             # 中间一排砖墙（第6行，y=300）
             for col in range(4, 12):  # 列4-11
                 x = col * grid_size
                 y = 6 * grid_size
-                self.game_world.spawn_wall(x, y, Wall.BRICK)
+                default_walls.append((x, y, Wall.BRICK))
             
             # 左侧钢墙（列1）
-            for row in range(2, 10):  # 衁2-9
+            for row in range(2, 10):  # 行2-9
                 x = 1 * grid_size
                 y = row * grid_size
-                self.game_world.spawn_wall(x, y, Wall.STEEL)
+                default_walls.append((x, y, Wall.STEEL))
             
             # 右侧钢墙（列14）
-            for row in range(2, 10):  # 衁2-9
+            for row in range(2, 10):  # 行2-9
                 x = 14 * grid_size
                 y = row * grid_size
-                self.game_world.spawn_wall(x, y, Wall.STEEL)
+                default_walls.append((x, y, Wall.STEEL))
             
-            # 添加一些草地（列7-8，衁4-5）
+            # 添加一些草地（列7-8，行4-5）
             for col in range(7, 9):
                 for row in range(4, 6):
                     x = col * grid_size
                     y = row * grid_size
-                    self.game_world.spawn_wall(x, y, Wall.GRASS)
+                    default_walls.append((x, y, Wall.GRASS))
             
             # 添加河流（列10，行3-8）
             for row in range(3, 9):
                 x = 10 * grid_size
                 y = row * grid_size
-                self.game_world.spawn_wall(x, y, Wall.RIVER)
+                default_walls.append((x, y, Wall.RIVER))
             
             # 添加基地（老鹰）在底部中央
             base_x = (self.screen_width // 2) - 25  # 居中
             base_y = self.screen_height - 100  # 底部
-            self.game_world.spawn_wall(base_x, base_y, Wall.BASE)
+            default_walls.append((base_x, base_y, Wall.BASE))
+            
+            # 按照坐标排序（先y后x），确保加载顺序一致
+            default_walls.sort(key=lambda w: (w[1], w[0]))
+            
+            # 按顺序生成墙体
+            for x, y, wall_type in default_walls:
+                self.game_world.spawn_wall(x, y, wall_type)
 
     def handle_event(self, event):
         """处理游戏事件"""

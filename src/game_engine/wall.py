@@ -14,16 +14,18 @@ class Wall(GameObject):
     RIVER = 4    # 河流，坦克无法通过
     BASE = 5     # 基地，被摧毁则游戏失败
     
-    def __init__(self, x, y, wall_type=BRICK):
+    def __init__(self, x, y, wall_type=BRICK, wall_id=None):
         """初始化墙体
         
         Args:
             x: 位置x坐标
             y: 位置y坐标
             wall_type: 墙体类型
+            wall_id: 墙体唯一ID（用于网络同步），如果为None则自动生成
         """
         super().__init__(x, y, config.WALL_WIDTH, config.WALL_HEIGHT)
         self.wall_type = wall_type
+        self.wall_id = wall_id  # 墙体唯一ID，用于网络同步
         self.is_wall = True
         
         # 根据类型设置属性

@@ -101,16 +101,21 @@ class StateManager:
                 })
                 
         # Optimization: Only send destroyed walls and changed wall types
+        # 使用墙体ID而非索引，避免列表顺序不一致的问题
         destroyed_walls = []
         changed_walls = []
-        for idx, wall in enumerate(self.world.walls):
+        for wall in self.world.walls:
+            # 确保墙体有ID
+            if not hasattr(wall, 'wall_id') or wall.wall_id is None:
+                continue
+                
             if not wall.active:
-                destroyed_walls.append(idx)
+                destroyed_walls.append(wall.wall_id)
             # Track wall type changes (for Shovel effect)
             # We need to store original types to detect changes
             # For now, just send all wall types
             if wall.active:
-                changed_walls.append({"idx": idx, "type": wall.wall_type})
+                changed_walls.append({"id": wall.wall_id, "type": wall.wall_type})
                 
         # Sync Explosions
         explosions = []
@@ -375,29 +380,46 @@ class StateManager:
             self.world.add_object(b)
                 
         # 3. Sync Walls
+        # 使用墙体ID而非索引，避免列表顺序不一致的问题
         d_walls = set(state.get("d_walls", []))
         if d_walls:
-            print(f"[Client] Applying {len(d_walls)} destroyed walls: {list(d_walls)[:5]}...")
-        for idx, wall in enumerate(self.world.walls):
-            if idx in d_walls:
+            print(f"[Client] Applying {len(d_walls)} destroyed walls by ID: {list(d_walls)[:5]}...")
+        
+        # 通过ID查找墙体
+        for wall in self.world.walls:
+            if not hasattr(wall, 'wall_id') or wall.wall_id is None:
+                continue
+                
+            if wall.wall_id in d_walls:
                 wall.active = False
                 wall.visible = False
             else:
+                # 确保未被销毁的墙体是活跃的
                 wall.active = True
                 wall.visible = True
         
         # Apply wall type changes (for Shovel effect)
         c_walls = state.get("c_walls", [])
         for wall_data in c_walls:
-            idx = wall_data["idx"]
-            new_type = wall_data["type"]
-            if idx < len(self.world.walls):
-                wall = self.world.walls[idx]
-                if wall.wall_type != new_type:
-                    wall.wall_type = new_type
-                    # Reload wall image
-                    from src.utils.resource_manager import resource_manager
-                    wall.image = resource_manager.get_wall_image(new_type)
+            wall_id = wall_data.get("id")  # 使用ID而非idx
+            new_type = wall_data.get("type")
+            
+            if wall_id is None:
+                continue
+            
+            # 通过ID查找墙体
+            wall = None
+            if hasattr(self.world, 'wall_id_map') and wall_id in self.world.wall_id_map:
+                wall = self.world.wall_id_map[wall_id]
+            else:
+                # 回退：遍历查找（兼容旧代码）
+                wall = next((w for w in self.world.walls if hasattr(w, 'wall_id') and w.wall_id == wall_id), None)
+            
+            if wall and wall.wall_type != new_type:
+                wall.wall_type = new_type
+                # Reload wall image
+                from src.utils.resource_manager import resource_manager
+                wall.image = resource_manager.get_wall_image(new_type)
 
         # 4. Sync Explosions
         self.world.explosions.clear()

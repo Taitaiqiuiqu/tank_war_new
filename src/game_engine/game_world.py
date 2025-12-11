@@ -158,6 +158,10 @@ class GameWorld:
         
         # 网络模式标志：True表示是客户端，不执行权威逻辑（道具效果等）
         self.is_client_mode = False
+        
+        # 墙体ID计数器（用于网络同步）
+        self.next_wall_id = 1  # 从1开始，0保留为无效ID
+        self.wall_id_map: Dict[int, Wall] = {}  # wall_id -> Wall 映射，用于快速查找
 
     # ----------------------------------------------------------------------
     # 对象管理
@@ -189,6 +193,9 @@ class GameWorld:
             self.bullets.remove(game_object)
         elif isinstance(game_object, Wall) and game_object in self.walls:
             self.walls.remove(game_object)
+            # 从ID映射中移除
+            if hasattr(game_object, 'wall_id') and game_object.wall_id in self.wall_id_map:
+                del self.wall_id_map[game_object.wall_id]
         elif isinstance(game_object, Explosion) and game_object in self.explosions:
             self.explosions.remove(game_object)
         elif isinstance(game_object, Star) and game_object in self.stars:
@@ -218,6 +225,9 @@ class GameWorld:
         self.tank_lives.clear()
         self.tank_info.clear()
         self.respawn_timers.clear()
+        # 重置墙体ID系统
+        self.next_wall_id = 1
+        self.wall_id_map.clear()
 
     # ----------------------------------------------------------------------
     # 事件队列（供上层如 GameEngine 消费）
@@ -297,10 +307,26 @@ class GameWorld:
             self.add_object(bullet)
         return bullet
 
-    def spawn_wall(self, x: int, y: int, wall_type: int = Wall.BRICK) -> Wall:
-        """生成单块墙体。"""
-        wall = Wall(x, y, wall_type=wall_type)
+    def spawn_wall(self, x: int, y: int, wall_type: int = Wall.BRICK, wall_id: int = None) -> Wall:
+        """生成单块墙体。
+        
+        Args:
+            x: 位置x坐标
+            y: 位置y坐标
+            wall_type: 墙体类型
+            wall_id: 墙体唯一ID（用于网络同步），如果为None则自动分配
+        """
+        # 如果没有提供ID，自动分配
+        if wall_id is None:
+            wall_id = self.next_wall_id
+            self.next_wall_id += 1
+        
+        wall = Wall(x, y, wall_type=wall_type, wall_id=wall_id)
         self.add_object(wall)
+        
+        # 添加到ID映射
+        self.wall_id_map[wall_id] = wall
+        
         return wall
 
     def load_map_layout(self, layout: Sequence[Sequence[int]], tile_size: int = 50):
