@@ -155,6 +155,9 @@ class GameWorld:
         self.base_fortified = False
         self.original_base_walls = [] # 存储基地周围墙体的原始状态 (x, y, type)
         self.events: List[Dict] = []  # 供上层消费的游戏事件队列
+        
+        # 网络模式标志：True表示是客户端，不执行权威逻辑（道具效果等）
+        self.is_client_mode = False
 
     # ----------------------------------------------------------------------
     # 对象管理
@@ -593,13 +596,21 @@ class GameWorld:
                     break
         
         # 玩家 vs 道具
-        for tank in self.tanks:
-            if tank.tank_type == "player" and tank.active:
-                hit_props = self.prop_manager.check_collision(tank.rect)
-                for prop in hit_props:
-                    self._apply_prop_effect(tank, prop.type)
-                    # 播放吃道具音效
-                    resource_manager.play_sound("get_prop") # 假设有这个音效，或者用其他代替
+        # 注意：在客户端模式下，不执行道具效果（只显示道具被拾取）
+        # 道具效果由服务端执行并通过状态同步传递给客户端
+        if not self.is_client_mode:
+            for tank in self.tanks:
+                if tank.tank_type == "player" and tank.active:
+                    hit_props = self.prop_manager.check_collision(tank.rect)
+                    for prop in hit_props:
+                        self._apply_prop_effect(tank, prop.type)
+                        # 播放吃道具音效
+                        resource_manager.play_sound("get_prop") # 假设有这个音效，或者用其他代替
+                        # 推送道具拾取事件，用于客户端音效和反馈
+                        self._push_event(
+                            "prop_pickup",
+                            {"tank_id": tank.tank_id, "prop_type": prop.type, "position": tank.get_center()},
+                        )
 
     def _apply_prop_effect(self, player: Tank, prop_type: int):
         """应用道具效果"""

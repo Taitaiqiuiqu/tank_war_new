@@ -37,6 +37,11 @@ class StateManager:
         if self.pending_remote_state:
             self.decode_state(self.pending_remote_state)
             self.pending_remote_state = None
+        # Capture events before they're consumed by game engine
+        # This ensures events are synced even if they're consumed in the same frame
+        self._captured_events = []
+        if hasattr(self.world, 'events'):
+            self._captured_events = list(self.world.events)
         self.latest_snapshot = self.encode_state()
 
     def encode_state(self) -> dict:
@@ -143,6 +148,13 @@ class StateManager:
                     "y": prop.rect.y
                 })
 
+        # Sync Events (for video playback and other client-side effects)
+        # Use captured events from update() to ensure we get events even if they were consumed
+        events = getattr(self, '_captured_events', [])
+        if not events and hasattr(self.world, 'events'):
+            # Fallback: if capture didn't work, try to get current events
+            events = list(self.world.events)
+
         return {
             "ts": time.time(),
             "tanks": tanks,
@@ -154,6 +166,7 @@ class StateManager:
             "stars": stars,
             "respawn": respawn_data,
             "props": props,
+            "events": events,  # Sync events for client-side video playback
             "meta": {
                 "over": self.world.game_over,
                 "win": self.world.winner,
@@ -403,6 +416,15 @@ class StateManager:
             for prop_data in state.get("props", []):
                 prop = Prop(prop_data["x"], prop_data["y"], prop_data["type"])
                 self.world.prop_manager.props.add(prop)
+
+        # 8. Sync Events (for client-side video playback)
+        # Add events to world's event queue so they can be consumed by game engine
+        remote_events = state.get("events", [])
+        if remote_events and hasattr(self.world, 'events'):
+            # Append remote events to world's event queue
+            # These will be consumed by game engine's _consume_game_events()
+            for event in remote_events:
+                self.world.events.append(event)
 
     def _apply_level_effects(self, tank):
         """根据坦克等级应用效果（速度、能力等）"""

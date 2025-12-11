@@ -1747,6 +1747,8 @@ class GameEngine:
                     self._client_prediction['current_pos'] = (self.player_tank.x, self.player_tank.y)
                 
                 # 2.5. Update game world objects (for visual effects and animations)
+                # 确保客户端模式（不执行权威逻辑）
+                self.game_world.is_client_mode = True
                 # Update bullets, explosions, and other game objects
                 for bullet in self.game_world.bullets:
                     bullet.update()
@@ -1794,6 +1796,9 @@ class GameEngine:
                     
                     # Apply state for other entities (other players, bullets, etc.)
                     self.state_manager.decode_state(remote_state)
+                    
+                    # 消费同步的事件（用于触发视频播放等客户端效果）
+                    self._consume_game_events()
                 
             elif role == "host":
                 # Host: Receive Inputs -> Update Physics -> Send State
@@ -1824,6 +1829,8 @@ class GameEngine:
                             
                 # 2. Update Physics - 只有在游戏未结束时才更新
                 if self.current_state == "game" and not self.game_world.game_over:
+                    # 确保服务端模式（执行权威逻辑）
+                    self.game_world.is_client_mode = False
                     # 应用本地主机的移动输入
                     self._apply_player_direction()
                     # 更新本地玩家坦克的物理状态（应用移动后的碰撞检测等）
@@ -1979,6 +1986,13 @@ class GameEngine:
                 depleted_id = data.get("tank_id")
                 pos = self._get_teammate_focus_position(depleted_id)
                 self.video_manager.play("teammate_out_of_lives", position=pos)
+            elif etype == "prop_pickup":
+                # 播放道具拾取音效（客户端也能听到）
+                from src.utils.resource_manager import resource_manager
+                try:
+                    resource_manager.play_sound("get_prop")
+                except Exception:
+                    pass  # 如果音效不存在，忽略错误
 
     def _get_teammate_focus_position(self, depleted_id: Optional[int]) -> Tuple[int, int]:
         """找到仍然存活/有命的队友位置，用于显示鼓励视频。"""
