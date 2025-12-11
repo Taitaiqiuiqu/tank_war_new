@@ -1,5 +1,7 @@
+import os
+import heapq
 import random
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import ctypes
 
 import pygame
@@ -11,6 +13,7 @@ from src.network.network_manager import NetworkManager
 from src.state_sync.state_manager import StateManager
 from src.ui.screen_manager import ScreenManager
 from src.ui.pause_menu import PauseMenuOverlay
+from src.ui.video_manager import VideoPlaybackController
 from src.utils.resource_manager import resource_manager
 from src.utils.map_loader import map_loader
 from src.game_engine.window_manager import WindowManager
@@ -20,7 +23,7 @@ from src.config.game_config import config
 class EnemyAIController:
     """增强型敌人AI：支持4个难度等级"""
 
-    def __init__(self, tank_id: int, world: GameWorld, difficulty: str = "normal"):
+    def __init__(self, tank_id: int, world: GameWorld, difficulty: str = "normal", player_weight: float = 1.0, base_weight: float = 1.0):
         from src.game_engine.ai_config import get_difficulty_config
         import random
         
@@ -28,6 +31,8 @@ class EnemyAIController:
         self.world = world
         self.difficulty = difficulty
         self.config = get_difficulty_config(difficulty)
+        self.player_weight = player_weight
+        self.base_weight = base_weight
         
         # 初始化计时器为随机值，确保敌人立即开始移动
         min_interval, max_interval = self.config["direction_interval"]
@@ -39,6 +44,13 @@ class EnemyAIController:
         self.role = None  # For Hell difficulty team coordination
         self.turn_timer = 0  # 方向调转计时器
         self.target_direction = None  # 目标方向
+        # 防止卡住：记录上一次位置与卡住帧计数
+        self._last_pos = None
+        self._stuck_frames = 0
+        # 威胁感知与状态
+        self.threat_scores = {}  # tank_id -> score
+        self._state = "attack"   # attack / defend / retreat / flank
+        self._state_timer = 0
 
     def _turn_to_direction(self, tank, target_direction):
         """
@@ -78,6 +90,34 @@ class EnemyAIController:
         if not tank:
             return
 
+        # 更新威胁感知（最近伤害来源，衰减）
+        self._update_threat(tank)
+        # 基于状态机调整行为
+        self._update_state(tank)
+
+        # 如果长时间未移动，强制换向避免卡住
+        current_pos = (tank.x, tank.y)
+        if self._last_pos is None:
+            self._last_pos = current_pos
+        moved_dist = ( (current_pos[0] - self._last_pos[0]) ** 2 + (current_pos[1] - self._last_pos[1]) ** 2 ) ** 0.5
+        if moved_dist < 1:
+            self._stuck_frames += 1
+        else:
+            self._stuck_frames = 0
+            self._last_pos = current_pos
+        if self._stuck_frames > 30:  # 约0.5秒@60fps
+            self._force_unstuck(tank)
+            self._stuck_frames = 0
+            # 重新计时，避免立即再次卡住
+            min_interval, max_interval = self.config["direction_interval"]
+            self.direction_timer = random.randint(min_interval, max_interval)
+            return
+
+        # 子弹威胁优先级高：发现必躲场景立即闪避
+        if self.config.get("dodge") and self._should_dodge(tank):
+            self._dodge_bullet(tank)
+            return
+
         # 只在速度配置改变时应用速度（避免每次更新都重置）
         if tank.speed != self.config["speed"]:
             tank.speed = self.config["speed"]
@@ -112,29 +152,51 @@ class EnemyAIController:
         # 先调转方向，再移动
         if self._turn_to_direction(tank, direction):
             tank.move(direction)        # move方法内部已设置方向
+
+    def _force_unstuck(self, tank):
+        """卡住时强制换一个新方向移动。"""
+        # 优先尝试远离边界/墙体
+        directions = [Tank.UP, Tank.RIGHT, Tank.DOWN, Tank.LEFT]
+        scores = {}
+        for d in directions:
+            dx = 0
+            dy = 0
+            if d == Tank.UP:
+                dy = -1
+            elif d == Tank.DOWN:
+                dy = 1
+            elif d == Tank.LEFT:
+                dx = -1
+            elif d == Tank.RIGHT:
+                dx = 1
+            # 边界惩罚：越靠近边界分越低
+            nx = tank.x + dx * config.GRID_SIZE
+            ny = tank.y + dy * config.GRID_SIZE
+            border_penalty = (
+                (0 - nx if nx < 0 else 0)
+                + (nx - (self.world.width - tank.width) if nx > self.world.width - tank.width else 0)
+                + (0 - ny if ny < 0 else 0)
+                + (ny - (self.world.height - tank.height) if ny > self.world.height - tank.height else 0)
+            )
+            wall_penalty = 0
+            for w in self.world.walls:
+                if not w.active or getattr(w, "passable", False):
+                    continue
+                if abs((w.x - nx)) < config.GRID_SIZE and abs((w.y - ny)) < config.GRID_SIZE:
+                    wall_penalty += 2
+            scores[d] = -border_penalty - wall_penalty
+        best_dir = max(scores, key=scores.get)
+        if self._turn_to_direction(tank, best_dir):
+            tank.move(best_dir)
     
     def _move_with_tracking(self, tank):
         """带追踪的移动（普通+难度）"""
-        # 1. 首先检查是否有玩家基地可以攻击
+        # 1. 选择目标（考虑威胁与状态）
         base = self._find_player_base()
-        target = None
-        target_is_base = False
-        
-        # 根据难度决定目标优先级
-        if base and self.difficulty in ["hard", "hell"]:
-            # 困难和地狱难度优先攻击基地
-            target = base
-            target_is_base = True
-        elif base and self.difficulty == "normal" and random.random() < 0.3:
-            # 普通难度有30%概率优先攻击基地
-            target = base
-            target_is_base = True
-        else:
-            # 其他情况优先攻击玩家坦克
-            target = self._find_nearest_player(tank)
-            if not target:
-                self._move_random(tank)
-                return
+        target, target_is_base = self._select_target(tank, base)
+        if not target:
+            self._move_random(tank)
+            return
         
         # Calculate distance
         dx = target.x - tank.x
@@ -149,73 +211,57 @@ class EnemyAIController:
         
         # 基地相关移动策略
         if target_is_base:
-            # 如果距离基地较远，直接移动向基地
             if distance > 200:
-                # Move towards base - 修复方向判断，增加稳定性
-                # 使用更稳定的方向选择逻辑，避免在边界处频繁切换
-                if abs(dx) > abs(dy) + 20:  # 增加20像素的缓冲，避免频繁切换
-                    # 基地在右边(dx>0)，向右移动；在左边(dx<0)，向左移动
-                    direction = Tank.RIGHT if dx > 0 else Tank.LEFT
-                elif abs(dy) > abs(dx) + 20:  # 增加20像素的缓冲
-                    # 基地在下边(dy>0)，向下移动；在上边(dy<0)，向上移动
-                    direction = Tank.DOWN if dy > 0 else Tank.UP
-                else:
-                    # 当dx和dy接近时，保持当前方向或选择更稳定的方向
-                    if tank.direction in [Tank.LEFT, Tank.RIGHT]:
-                        direction = Tank.RIGHT if dx > 0 else Tank.LEFT
-                    else:
-                        direction = Tank.DOWN if dy > 0 else Tank.UP
-                
-                # 先调转方向，再移动
+                direction = self._choose_axis_direction(dx, dy, tank.direction)
                 if self._turn_to_direction(tank, direction):
-                    tank.move(direction)        # move方法内部已设置方向
+                    tank.move(direction)
+            # 近距离攻基：若被挡，专注拆墙
+            if not self._is_shooting_path_clear(tank, base):
+                wall_blocker = self._find_first_blocker_to(base)
+                if wall_blocker and getattr(wall_blocker, "destructible", False):
+                    self._attack_blocker(tank, wall_blocker)
             return
         
         # 玩家坦克相关移动策略
-        # Safe distance logic (Hard+)
-        safe_distance = self.config.get("safe_distance", 0)
-        if safe_distance > 0 and distance < safe_distance:
-            # Move away from player - 修复方向判断，增加稳定性
-            # 使用更稳定的方向选择逻辑，避免在边界处频繁切换
-            if abs(dx) > abs(dy) + 20:  # 增加20像素的缓冲，避免频繁切换
-                # 玩家在右边(dx>0)，向左移动；玩家在左边(dx<0)，向右移动
-                direction = Tank.LEFT if dx > 0 else Tank.RIGHT
-            elif abs(dy) > abs(dx) + 20:  # 增加20像素的缓冲
-                # 玩家在下边(dy>0)，向上移动；玩家在上边(dy<0)，向下移动
-                direction = Tank.UP if dy > 0 else Tank.DOWN
-            else:
-                # 当dx和dy接近时，保持当前方向或选择更稳定的方向
-                if tank.direction in [Tank.LEFT, Tank.RIGHT]:
-                    direction = Tank.LEFT if dx > 0 else Tank.RIGHT
-                else:
-                    direction = Tank.UP if dy > 0 else Tank.DOWN
-            
-            # 先调转方向，再移动
+        # 状态决策：撤退/侧翼/进攻
+        if self._state == "retreat":
+            direction = self._choose_axis_direction(-dx, -dy, tank.direction)
             if self._turn_to_direction(tank, direction):
-                tank.move(direction)        # move方法内部已设置方向
+                tank.move(direction)
+            return
+
+        # Safe distance logic (Hard+) 或防守状态保持距离
+        safe_distance = self.config.get("safe_distance", 0)
+        desired_distance = safe_distance if self._state in ("defend", "flank") else safe_distance
+        if desired_distance > 0 and distance < desired_distance:
+            direction = self._choose_axis_direction(-dx, -dy, tank.direction)
+            if self._turn_to_direction(tank, direction):
+                tank.move(direction)
+            return
+
+        # 侧翼：为目标制造横向偏移
+        if self._state == "flank":
+            flank_offset = 120
+            if abs(dx) > abs(dy):
+                target_x = target.x
+                target_y = target.y + (flank_offset if random.random() < 0.5 else -flank_offset)
+            else:
+                target_x = target.x + (flank_offset if random.random() < 0.5 else -flank_offset)
+                target_y = target.y
+            dx = target_x - tank.x
+            dy = target_y - tank.y
+
+        # 路径规划（简单网格 BFS）优先
+        next_dir = self._next_direction_via_path(tank, target)
+        if next_dir is not None:
+            if self._turn_to_direction(tank, next_dir):
+                tank.move(next_dir)
             return
         
-        # Dodge bullets (Normal+)
-        if self.config.get("dodge") and self._should_dodge(tank):
-            self._dodge_bullet(tank)
-            return
+        # Dodge bullets (Normal+) 已在 update 中提前处理
         
         # Move towards player - 修复方向判断，增加稳定性
-        # 使用更稳定的方向选择逻辑，避免在边界处频繁切换
-        if abs(dx) > abs(dy) + 20:  # 增加20像素的缓冲，避免频繁切换
-            # 玩家在右边(dx>0)，向右移动；玩家在左边(dx<0)，向左移动
-            direction = Tank.RIGHT if dx > 0 else Tank.LEFT
-        elif abs(dy) > abs(dx) + 20:  # 增加20像素的缓冲
-            # 玩家在下边(dy>0)，向下移动；玩家在上边(dy<0)，向上移动
-            direction = Tank.DOWN if dy > 0 else Tank.UP
-        else:
-            # 当dx和dy接近时，保持当前方向或选择更稳定的方向
-            if tank.direction in [Tank.LEFT, Tank.RIGHT]:
-                direction = Tank.RIGHT if dx > 0 else Tank.LEFT
-            else:
-                direction = Tank.DOWN if dy > 0 else Tank.UP
-        
-        # 先调转方向，再移动
+        direction = self._choose_axis_direction(dx, dy, tank.direction)
         if self._turn_to_direction(tank, direction):
             tank.move(direction)        # move方法内部已设置方向
     
@@ -238,6 +284,7 @@ class EnemyAIController:
         if not target:
             self.world.spawn_bullet(tank)
             return
+        # 避免持续在卡位时空放，若多次失败可尝试换位
         
         # 检查目标类型
         is_base = hasattr(target, "wall_type") and target.wall_type == Wall.BASE
@@ -336,6 +383,8 @@ class EnemyAIController:
         
         # 3. 检查是否有障碍物在射击路径上
         for obstacle in obstacles:
+            if obstacle is target:
+                continue
             # 检查障碍物矩形是否与射击线段相交
             if self._line_rect_intersection(tank_center, target_center, obstacle.rect):
                 return False
@@ -533,69 +582,28 @@ class EnemyAIController:
             # 如果没有玩家坦克，返回基地作为目标
             return base
             
-        # 根据难度决定是否使用高级目标选择
-        if self.difficulty in ["easy", "normal"]:
-            # 简单和普通难度使用距离优先
-            return self._find_nearest_player(tank)
-        
-        # 计算每个玩家的综合评分
-        best_score = -float('inf')
-        best_player = None
-        
-        for player in players:
-            # 计算距离
-            dx = player.x - tank.x
-            dy = player.y - tank.y
-            dist = (dx**2 + dy**2)**0.5
-            
-            # 基础分数（距离越近分数越高）
-            score = 1000 / (dist + 1)
-            
-            # 正在射击的玩家（高优先级）
-            if player.shoot_cooldown > 0 and player.shoot_cooldown < player.max_shoot_cooldown:
-                score += 200
-            
-            # 没有护盾的玩家（优先攻击）
-            if not player.shield_active:
-                score += 150
-            
-            # 生命值低的玩家（优先攻击）
-            health_factor = (100 - player.health) / 100
-            score += health_factor * 100
-            
-            # 静止的玩家（更容易命中）
-            if player.velocity_x == 0 and player.velocity_y == 0:
-                score += 50
-            
-            # 根据难度调整权重
-            if self.difficulty == "hell":
-                score *= 1.2  # 地狱难度目标选择更激进
-            
-            if score > best_score:
-                best_score = score
-                best_player = player
-        
-        # 3. 比较攻击玩家和攻击基地的优先级
+        # 距离+威胁+护盾加权
+        def _score(p):
+            dist2 = (p.x - tank.x) ** 2 + (p.y - tank.y) ** 2
+            threat = self.threat_scores.get(p.tank_id, 0)
+            has_shield = getattr(p, "shield_active", False)
+            shield_penalty = 40000 if has_shield else 0
+            return dist2 - threat * 5000 + shield_penalty
+
+        best_player = min(players, key=_score)
+
+        # 3. 比较攻击玩家和攻击基地的优先级（基地仍有较高基础权重）
         if base and best_player:
-            # 计算攻击玩家的分数
-            player_dx = best_player.x - tank.x
-            player_dy = best_player.y - tank.y
-            player_dist = (player_dx**2 + player_dy**2)**0.5
+            player_dist = ((best_player.x - tank.x) ** 2 + (best_player.y - tank.y) ** 2) ** 0.5
             player_score = 1000 / (player_dist + 1)
-            
-            # 计算攻击基地的分数（基地具有更高的基础分数）
-            base_score = 1500 / (base_dist + 1)  # 基地基础分数更高
-            
-            # 根据难度调整基地优先级权重
+            base_score = 1500 / (base_dist + 1)
             if self.difficulty == "hell":
-                base_score *= 1.5  # 地狱难度下基地优先级更高
+                base_score *= 1.5
             elif self.difficulty == "hard":
-                base_score *= 1.2  # 困难难度下基地优先级较高
-            
-            # 选择分数更高的目标
+                base_score *= 1.2
             if base_score > player_score:
                 return base
-        
+
         return best_player
     
     def _should_dodge(self, tank):
@@ -613,6 +621,284 @@ class EnemyAIController:
             if self._bullet_will_hit(bullet, tank):
                 return True
         return False
+    
+    # ------------------------------------------------------------------ #
+    # 感知 / 状态 / 路径
+    # ------------------------------------------------------------------ #
+    def _update_threat(self, tank):
+        """根据最近伤害来源更新威胁分数并衰减。"""
+        # 衰减
+        for k in list(self.threat_scores.keys()):
+            self.threat_scores[k] *= 0.98
+            if self.threat_scores[k] < 1:
+                del self.threat_scores[k]
+        # 最近伤害来源加分
+        hitter = getattr(tank, "last_hit_by", None)
+        if hitter and getattr(hitter, "tank_type", None) == "player":
+            tid = hitter.tank_id
+            self.threat_scores[tid] = self.threat_scores.get(tid, 0) + 20
+
+    def _update_state(self, tank):
+        """简单状态机：进攻/防守/撤退/侧翼。"""
+        self._state_timer = max(0, self._state_timer - 1)
+        health_ratio = tank.health / max(1, config.DEFAULT_HEALTH)
+        # 撤退条件：血量低或附近高威胁
+        high_threat = max(self.threat_scores.values()) if self.threat_scores else 0
+        # 近距压制：玩家靠太近也触发撤退
+        close_player = any(
+            ((p.x - tank.x) ** 2 + (p.y - tank.y) ** 2) ** 0.5 < 120
+            for p in self.world.tanks
+            if p.tank_type == "player" and p.active
+        )
+        if health_ratio < 0.3 or high_threat > 50 or close_player:
+            self._state = "retreat"
+            self._state_timer = 60
+            return
+        # 侧翼：周期性触发
+        if self._state_timer == 0 and random.random() < 0.15:
+            self._state = "flank"
+            self._state_timer = 90
+            return
+        # 防守：如果基地存在且可见，且难度较高时偶尔守
+        if self._state_timer == 0 and self.difficulty in ["hard", "hell"] and random.random() < 0.2:
+            self._state = "defend"
+            self._state_timer = 90
+            return
+        if self._state_timer == 0:
+            self._state = "attack"
+
+    def _select_target(self, tank, base):
+        """结合威胁与基地优先，返回目标与是否基地。"""
+        players = [t for t in self.world.tanks if t.active and t.tank_type == "player"]
+        target = None
+        target_is_base = False
+        if players:
+            def _score(p):
+                dist2 = (p.x - tank.x) ** 2 + (p.y - tank.y) ** 2
+                threat = self.threat_scores.get(p.tank_id, 0)
+                shield_penalty = 40000 if getattr(p, "shield_active", False) else 0
+                return dist2 - threat * 5000 + shield_penalty
+            target = min(players, key=_score)
+        if base:
+            # 基地优先权重
+            if not target:
+                return base, True
+            base_dist = ((base.x - tank.x) ** 2 + (base.y - tank.y) ** 2) ** 0.5
+            target_dist = ((target.x - tank.x) ** 2 + (target.y - tank.y) ** 2) ** 0.5
+            base_score = (1500 / (base_dist + 1)) * max(0.1, self.base_weight)
+            target_score = (1000 / (target_dist + 1)) * max(0.1, self.player_weight)
+            if self.difficulty in ["hard", "hell"]:
+                base_score *= 1.4 if self.difficulty == "hell" else 1.25
+            if base_score > target_score:
+                # 若基地被墙阻挡，沿射线找第一块阻挡物，若可破坏则锁定拆除
+                blocker = self._find_first_blocker_to(base)
+                if blocker and getattr(blocker, "destructible", False):
+                    return blocker, False
+                # 若找不到阻挡或不可破坏，则仍以基地为目标
+                return base, True
+        return target, False
+
+    def _find_first_blocker_to(self, target):
+        """沿射线找到首个阻挡物（墙/基地），用于拆墙或判定遮挡。"""
+        tank = next((t for t in self.world.tanks if t.tank_id == self.tank_id and t.active), None)
+        if not tank:
+            return None
+        tank_center = (tank.x + tank.width // 2, tank.y + tank.height // 2)
+        tgt_center = (target.x + target.width // 2, target.y + target.height // 2)
+        # 收集阻挡物（不可穿墙体）
+        blockers = [
+            w for w in self.world.walls
+            if w.active and not getattr(w, "shoot_through", False)
+        ]
+        # 按距离排序，取最近的相交阻挡
+        blockers.sort(key=lambda w: (w.x - target.x) ** 2 + (w.y - target.y) ** 2)
+        for w in blockers:
+            if self._line_rect_intersection(tank_center, tgt_center, w.rect):
+                return w
+        return None
+
+    def _attack_blocker(self, tank, blocker):
+        """朝阻挡物移动/射击，尝试拆除。"""
+        dx = blocker.x - tank.x
+        dy = blocker.y - tank.y
+        direction = self._choose_axis_direction(dx, dy, tank.direction)
+        if self._turn_to_direction(tank, direction):
+            tank.move(direction)
+        # 如果在同轴上，直接射击
+        if self._is_shooting_path_clear(tank, blocker) or self._is_target_in_firing_arc(tank, blocker):
+            self.world.spawn_bullet(tank)
+
+    def _choose_axis_direction(self, dx, dy, current_dir):
+        """带缓冲的轴向选择，降低抖动。"""
+        if abs(dx) > abs(dy) + 20:
+            return Tank.RIGHT if dx > 0 else Tank.LEFT
+        if abs(dy) > abs(dx) + 20:
+            return Tank.DOWN if dy > 0 else Tank.UP
+        # 接近对角时保持当前方向
+        if current_dir in [Tank.LEFT, Tank.RIGHT]:
+            return Tank.RIGHT if dx > 0 else Tank.LEFT
+        return Tank.DOWN if dy > 0 else Tank.UP
+
+    def _next_direction_via_path(self, tank, target):
+        """A* 寻路，使用危险度代价图。返回下一步方向或 None。"""
+        if not target:
+            return None
+        grid = config.GRID_SIZE
+        cols = max(1, self.world.width // grid)
+        rows = max(1, self.world.height // grid)
+        start = self._closest_free_cell(int((tank.x + tank.width * 0.5) // grid), int((tank.y + tank.height * 0.5) // grid), cols, rows)
+        goal = self._closest_free_cell(int((target.x + target.width * 0.5) // grid), int((target.y + target.height * 0.5) // grid), cols, rows)
+        if start == goal:
+            return None
+
+        # 构建代价图：基础1，危险区域提高代价；对墙体膨胀一圈提高代价，减少贴墙蹭卡
+        blocked = set()
+        for w in self.world.walls:
+            if not w.active:
+                continue
+            if getattr(w, "passable", False):
+                continue
+            blocked.add((int(w.x // grid), int(w.y // grid)))
+
+        danger = [[1.0 for _ in range(rows)] for _ in range(cols)]
+        # 墙体膨胀：周围一圈提高代价，避免贴墙路径
+        for bx, by in blocked:
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    nx, ny = bx + dx, by + dy
+                    if 0 <= nx < cols and 0 <= ny < rows:
+                        danger[nx][ny] += 3.0
+        # 玩家位置增加危险半径
+        for p in self.world.tanks:
+            if p.tank_type != "player" or not p.active:
+                continue
+            px, py = int(p.x // grid), int(p.y // grid)
+            for dx in range(-3, 4):
+                for dy in range(-3, 4):
+                    nx, ny = px + dx, py + dy
+                    if 0 <= nx < cols and 0 <= ny < rows:
+                        danger[nx][ny] += max(0, 4 - (abs(dx) + abs(dy))) * 1.5
+            # 直线视野惩罚（硬/地狱更重）
+            los_penalty = 4.0 if self.difficulty == "hell" else 2.5 if self.difficulty == "hard" else 1.5
+            # 同行
+            for x in range(cols):
+                if self._line_clear((px, py), (x, py), blocked):
+                    danger[x][py] += los_penalty
+            # 同列
+            for y in range(rows):
+                if self._line_clear((px, py), (px, y), blocked):
+                    danger[px][y] += los_penalty
+        # 子弹轨迹危险
+        for b in self.world.bullets:
+            if not b.active:
+                continue
+            bx, by = int(b.x // grid), int(b.y // grid)
+            if 0 <= bx < cols and 0 <= by < rows:
+                danger[bx][by] += 7
+                # 沿子弹方向扩散危险（更少直线穿越）
+                spread_len = 3
+                dx = 1 if b.velocity_x > 0 else -1 if b.velocity_x < 0 else 0
+                dy = 1 if b.velocity_y > 0 else -1 if b.velocity_y < 0 else 0
+                for i in range(1, spread_len + 1):
+                    sx = bx + dx * i
+                    sy = by + dy * i
+                    if 0 <= sx < cols and 0 <= sy < rows:
+                        danger[sx][sy] += 3
+
+        def heuristic(a, b):
+            return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+        open_set = []
+        heapq.heappush(open_set, (0, start))
+        came_from = {start: None}
+        g_score = {start: 0}
+        dirs = [(1,0),(-1,0),(0,1),(0,-1)]
+
+        while open_set:
+            _, current = heapq.heappop(open_set)
+            if current == goal:
+                break
+            cx, cy = current
+            for dx, dy in dirs:
+                nx, ny = cx + dx, cy + dy
+                if nx < 0 or ny < 0 or nx >= cols or ny >= rows:
+                    continue
+                if (nx, ny) in blocked:
+                    continue
+                step_cost = danger[nx][ny]
+                tentative = g_score[current] + step_cost
+                if tentative < g_score.get((nx, ny), float("inf")):
+                    g_score[(nx, ny)] = tentative
+                    came_from[(nx, ny)] = current
+                    f = tentative + heuristic((nx, ny), goal)
+                    heapq.heappush(open_set, (f, (nx, ny)))
+
+        if goal not in came_from:
+            return None
+        # 回溯获取下一步
+        step = goal
+        while came_from[step] and came_from[step] != start:
+            step = came_from[step]
+        nx, ny = step
+        sx, sy = start
+        if nx > sx:
+            return Tank.RIGHT
+        if nx < sx:
+            return Tank.LEFT
+        if ny > sy:
+            return Tank.DOWN
+        if ny < sy:
+            return Tank.UP
+        return None
+
+    def _closest_free_cell(self, gx, gy, cols, rows):
+        """若目标格被墙堵塞或越界，寻找最近的可通行格。"""
+        if 0 <= gx < cols and 0 <= gy < rows:
+            if not any(
+                w.active and not getattr(w, "passable", False)
+                and int(w.x // config.GRID_SIZE) == gx
+                and int(w.y // config.GRID_SIZE) == gy
+                for w in self.world.walls
+            ):
+                return (gx, gy)
+        from collections import deque
+        q = deque()
+        q.append((gx, gy))
+        visited = set([(gx, gy)])
+        dirs = [(1,0),(-1,0),(0,1),(0,-1)]
+        while q:
+            x, y = q.popleft()
+            if 0 <= x < cols and 0 <= y < rows:
+                blocked_here = any(
+                    w.active and not getattr(w, "passable", False)
+                    and int(w.x // config.GRID_SIZE) == x
+                    and int(w.y // config.GRID_SIZE) == y
+                    for w in self.world.walls
+                )
+                if not blocked_here:
+                    return (x, y)
+            for dx, dy in dirs:
+                nx, ny = x + dx, y + dy
+                if (nx, ny) not in visited and -1 <= nx <= cols and -1 <= ny <= rows:
+                    visited.add((nx, ny))
+                    q.append((nx, ny))
+        return (max(0, min(cols - 1, gx)), max(0, min(rows - 1, gy)))
+
+    def _line_clear(self, a, b, blocked):
+        """网格直线是否有阻挡（用于视野惩罚）。"""
+        ax, ay = a
+        bx, by = b
+        if ax == bx:
+            step = 1 if by > ay else -1
+            for y in range(ay + step, by, step):
+                if (ax, y) in blocked:
+                    return False
+        elif ay == by:
+            step = 1 if bx > ax else -1
+            for x in range(ax + step, bx, step):
+                if (x, ay) in blocked:
+                    return False
+        return True
     
     def _bullet_will_hit(self, bullet, tank):
         """预测子弹是否会击中坦克"""
@@ -799,6 +1085,9 @@ class GameEngine:
         # 将GameEngine实例传递给ScreenManager
         self.screen_manager.game_engine = self
         self.state_manager = StateManager()
+        # AI 目标权重（可在设置中调整）
+        self.ai_player_weight = getattr(self.screen_manager.context, "ai_player_weight", 1.0)
+        self.ai_base_weight = getattr(self.screen_manager.context, "ai_base_weight", 1.0)
         # 创建游戏世界，以1920*1080为基准，固定行列数（28列*21行）
         # 1920*1080的4:3比例对应1440*1080，向下取整为50倍数后为1400*1050
         grid_size = 50
@@ -806,6 +1095,10 @@ class GameEngine:
         game_world_height = 21 * grid_size  # 21行
         self.game_world = GameWorld(game_world_width, game_world_height)
         self.state_manager.attach_world(self.game_world)
+        video_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "videos"))
+        self.video_manager = VideoPlaybackController(video_dir)
+        # 后台预加载视频与音频，减少首次播放卡顿
+        self.video_manager.preload_all(async_load=True)
         
         # 宽高比适配相关
         self.game_world_aspect_ratio = 4/3  # 游戏世界保持4:3比例
@@ -973,7 +1266,13 @@ class GameEngine:
             enemy_id = self.next_enemy_id
             self.next_enemy_id += 1
             self.game_world.spawn_tank("enemy", tank_id=enemy_id, position=enemy_spawn)
-            self.enemy_controllers.append(EnemyAIController(enemy_id, self.game_world, difficulty=self.game_difficulty))
+            self.enemy_controllers.append(EnemyAIController(
+                enemy_id,
+                self.game_world,
+                difficulty=self.game_difficulty,
+                player_weight=getattr(self, "ai_player_weight", 1.0),
+                base_weight=getattr(self, "ai_base_weight", 1.0),
+            ))
             
             # Load walls with offset
             walls = map_data.get('walls', [])
@@ -998,7 +1297,13 @@ class GameEngine:
             enemy_id = self.next_enemy_id
             self.next_enemy_id += 1
             self.game_world.spawn_tank("enemy", tank_id=enemy_id, position=enemy_spawn)
-            self.enemy_controllers.append(EnemyAIController(enemy_id, self.game_world, difficulty=self.game_difficulty))
+            self.enemy_controllers.append(EnemyAIController(
+                enemy_id,
+                self.game_world,
+                difficulty=self.game_difficulty,
+                player_weight=getattr(self, "ai_player_weight", 1.0),
+                base_weight=getattr(self, "ai_base_weight", 1.0),
+            ))
 
             # 使用50x50网格创建地图布局
             # 中间一排砖墙（第6行，y=300）
@@ -1382,6 +1687,8 @@ class GameEngine:
 
     def update(self):
         """更新游戏状态"""
+        now_ms = pygame.time.get_ticks()
+        self.video_manager.update(now_ms)
         # 如果暂停，只更新UI管理器，跳过游戏逻辑
         if self.paused:
             # 更新UI管理器以处理暂停菜单
@@ -1512,6 +1819,7 @@ class GameEngine:
                     self._apply_player_direction()
                     self._update_enemy_ai()
                     self.game_world.update()
+                    self._consume_game_events()
                     
                     # 更新关卡模式特殊条件
                     if self.multiplayer_game_mode == "level":
@@ -1521,6 +1829,7 @@ class GameEngine:
                     if self._check_game_over():
                         # 游戏结束，停止所有音效
                         pygame.mixer.stop()
+                        self._play_game_over_video()
                         # 设置游戏结果并显示游戏结束屏幕
                         self.screen_manager.context.game_won = self.game_world.winner == "player"
                         # 通知屏幕管理器切换到游戏结束屏幕
@@ -1547,6 +1856,7 @@ class GameEngine:
                 
                 # 然后更新游戏世界（处理物理和碰撞）
                 self.game_world.update()
+                self._consume_game_events()
                 
                 # 更新关卡模式特殊条件
                 if self.multiplayer_game_mode == "level":
@@ -1556,6 +1866,7 @@ class GameEngine:
                 if self._check_game_over():
                     # 游戏结束，停止所有音效
                     pygame.mixer.stop()
+                    self._play_game_over_video()
                     # 设置游戏结果并显示游戏结束屏幕
                     self.screen_manager.context.game_won = self.game_world.winner == "player"
                     # 通知屏幕管理器切换到游戏结束屏幕
@@ -1614,6 +1925,55 @@ class GameEngine:
 
         self.state_manager.update()
 
+    # ------------------------------------------------------------------ #
+    # 游戏事件 -> 视频触发
+    # ------------------------------------------------------------------ #
+    def _consume_game_events(self):
+        events = self.game_world.consume_events()
+        for event in events:
+            etype = event.get("type")
+            data = event.get("data", {}) or {}
+            if etype == "grenade_pickup":
+                self.video_manager.play("grenade_pickup")
+            elif etype == "player_killed_by_enemy":
+                pos = data.get("position")
+                self.video_manager.play("player_killed_by_enemy", position=pos)
+            elif etype == "player_life_depleted":
+                depleted_id = data.get("tank_id")
+                pos = self._get_teammate_focus_position(depleted_id)
+                self.video_manager.play("teammate_out_of_lives", position=pos)
+
+    def _get_teammate_focus_position(self, depleted_id: Optional[int]) -> Tuple[int, int]:
+        """找到仍然存活/有命的队友位置，用于显示鼓励视频。"""
+        other_id = None
+        if depleted_id == 1:
+            other_id = 2
+        elif depleted_id == 2:
+            other_id = 1
+
+        if other_id:
+            active_tank = next(
+                (t for t in self.game_world.tanks if t.tank_type == "player" and t.tank_id == other_id and t.active),
+                None,
+            )
+            if active_tank:
+                return active_tank.get_center()
+
+            lives_left = self.game_world.tank_lives.get(other_id, 0)
+            if lives_left > 0:
+                spawn = self.game_world.tank_info.get(other_id, {}).get("spawn_point")
+                if spawn and len(spawn) == 2:
+                    return int(spawn[0]), int(spawn[1])
+
+        # 回退：使用世界中心
+        return self.game_world.width // 2, self.game_world.height // 2
+
+    def _play_game_over_video(self):
+        winner = getattr(self.game_world, "winner", None)
+        player_wins = winner in ("player", "player1", "player2")
+        key = "victory" if player_wins else "defeat"
+        self.video_manager.play(key)
+
     def update_render_surface(self):
         """更新中间渲染表面尺寸"""
         # 游戏世界保持固定尺寸（28列*21行）
@@ -1644,6 +2004,7 @@ class GameEngine:
             
             # 4. 将游戏世界渲染到中间表面
             self.game_world.render(self.render_surface)
+            self.video_manager.render_world(self.render_surface)
             
             # 5. 计算缩放比例和居中位置
             # 获取当前窗口的实际大小
@@ -1686,6 +2047,8 @@ class GameEngine:
             # 菜单界面直接渲染到主窗口
             self.screen_manager.render()
 
+        # 视频覆盖层（全屏/界面层）
+        self.video_manager.render_screen(self.screen)
         pygame.display.flip()
 
     def _draw_lives_display(self, x_offset, y_offset, scaled_width, scaled_height):
@@ -1972,7 +2335,13 @@ class GameEngine:
         for tank_id in new_enemy_ids:
             # 使用锁定的游戏难度，而不是从context读取（防止重生时难度改变）
             difficulty = self.game_difficulty if self.game_difficulty else 'normal'
-            self.enemy_controllers.append(EnemyAIController(tank_id, self.game_world, difficulty))
+            self.enemy_controllers.append(EnemyAIController(
+                tank_id,
+                self.game_world,
+                difficulty,
+                player_weight=getattr(self, "ai_player_weight", 1.0),
+                base_weight=getattr(self, "ai_base_weight", 1.0),
+            ))
             print(f"[AI] 为坦克 {tank_id} 创建AI控制器，难度: {difficulty}")
             
         # 移除已死亡敌人的控制器
@@ -1980,6 +2349,8 @@ class GameEngine:
         
         # 更新所有控制器
         for controller in self.enemy_controllers:
+            controller.player_weight = getattr(self, "ai_player_weight", 1.0)
+            controller.base_weight = getattr(self, "ai_base_weight", 1.0)
             controller.update()
     
     def _toggle_pause(self):

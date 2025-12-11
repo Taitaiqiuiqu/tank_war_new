@@ -7,8 +7,8 @@ DIFFICULTY_CONFIGS = {
     "easy": {
         "name": "简单",
         "speed": 1.2,  # 降低速度，减少漂移
-        "direction_interval": (30, 40),  # 0.5-0.67秒决策间隔 (30-40帧)
-        "shoot_interval": (45, 60),     # 0.75-1秒射击间隔
+        "direction_interval": (28, 36),  # 略提速
+        "shoot_interval": (40, 55),
         "tracking": False,
         "prediction": False,
         "dodge": False
@@ -16,40 +16,40 @@ DIFFICULTY_CONFIGS = {
     "normal": {
         "name": "普通",
         "speed": 1.5,  # 降低速度
-        "direction_interval": (25, 35),  # 0.42-0.58秒决策间隔
-        "shoot_interval": (35, 50),     # 0.58-0.83秒射击间隔
+        "direction_interval": (22, 30),  # 决策更快
+        "shoot_interval": (30, 45),
         "tracking": True,
         "tracking_prob": 0.7,
         "prediction": True,
         "prediction_frames": 10,
         "dodge": True,
-        "dodge_prob": 0.3
+        "dodge_prob": 0.45
     },
     "hard": {
         "name": "困难",
         "speed": 1.8,  # 降低速度
-        "direction_interval": (20, 30),  # 0.33-0.5秒决策间隔
-        "shoot_interval": (25, 40),     # 0.42-0.67秒射击间隔
+        "direction_interval": (16, 24),  # 更快决策
+        "shoot_interval": (20, 32),     # 更快射击
         "tracking": True,
         "tracking_prob": 0.9,
         "prediction": True,
         "prediction_frames": 20,
         "dodge": True,
-        "dodge_prob": 0.7,
+        "dodge_prob": 0.85,
         "safe_distance": 100
     },
     "hell": {
         "name": "地狱",
         "speed": 2.0,  # 降低速度
-        "direction_interval": (15, 25),  # 0.25-0.42秒决策间隔
-        "shoot_interval": (20, 30),     # 0.33-0.5秒射击间隔
+        "direction_interval": (10, 18),  # 极快决策
+        "shoot_interval": (14, 24),     # 极快射击
         "tracking": True,
         "tracking_prob": 1.0,
         "prediction": True,
         "prediction_frames": 30,
         "dodge": True,
-        "dodge_prob": 0.9,
-        "safe_distance": 150,
+        "dodge_prob": 0.95,
+        "safe_distance": 140,
         "team_coordination": True
     }
 }

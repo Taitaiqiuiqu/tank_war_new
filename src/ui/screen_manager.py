@@ -36,6 +36,8 @@ class ScreenContext:
     
     # 难度设置
     enemy_difficulty: str = "normal"  # 敌人AI难度
+    ai_player_weight: float = 1.0
+    ai_base_weight: float = 1.0
     
     # 地图选择
     selected_map: str = "default"  # 选中的地图名称

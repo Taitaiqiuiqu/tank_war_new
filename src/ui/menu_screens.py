@@ -3,7 +3,7 @@ import src.ui.init_i18n
 
 import pygame
 import pygame_gui
-from pygame_gui.elements import UIButton, UILabel, UISelectionList, UIImage, UITextEntryLine, UIDropDownMenu, UIPanel
+from pygame_gui.elements import UIButton, UILabel, UISelectionList, UIImage, UITextEntryLine, UIDropDownMenu, UIPanel, UIHorizontalSlider
 from pygame_gui.windows import UIMessageWindow
 
 from src.ui.screen_manager import BaseScreen, ScreenContext
@@ -1973,6 +1973,41 @@ class SettingsScreen(BaseScreen):
             relative_rect=pygame.Rect((center_x + 10, center_y - 100), (150, 30)),
             manager=self.manager
         )
+
+        # AI 目标权重滑条
+        UILabel(
+            relative_rect=pygame.Rect((center_x - 200, center_y - 40), (200, 30)),
+            text="AI 攻击玩家权重",
+            manager=self.manager
+        )
+        self.ai_player_slider = UIHorizontalSlider(
+            relative_rect=pygame.Rect((center_x + 10, center_y - 40), (150, 25)),
+            start_value=self.context.ai_player_weight,
+            value_range=(0.5, 2.0),
+            manager=self.manager
+        )
+        self.ai_player_value = UILabel(
+            relative_rect=pygame.Rect((center_x + 170, center_y - 40), (60, 25)),
+            text=f"{self.context.ai_player_weight:.2f}",
+            manager=self.manager
+        )
+
+        UILabel(
+            relative_rect=pygame.Rect((center_x - 200, center_y), (200, 30)),
+            text="AI 攻击基地权重",
+            manager=self.manager
+        )
+        self.ai_base_slider = UIHorizontalSlider(
+            relative_rect=pygame.Rect((center_x + 10, center_y), (150, 25)),
+            start_value=self.context.ai_base_weight,
+            value_range=(0.5, 2.0),
+            manager=self.manager
+        )
+        self.ai_base_value = UILabel(
+            relative_rect=pygame.Rect((center_x + 170, center_y), (60, 25)),
+            text=f"{self.context.ai_base_weight:.2f}",
+            manager=self.manager
+        )
         
         # 应用按钮
         self.btn_apply = UIButton(
@@ -1999,9 +2034,26 @@ class SettingsScreen(BaseScreen):
                 # 应用显示模式设置
                 selected_mode = self.display_mode_dropdown.selected_option
                 self._apply_display_mode(selected_mode)
+                # 保存AI权重到上下文
+                self.context.ai_player_weight = float(self.ai_player_slider.get_current_value())
+                self.context.ai_base_weight = float(self.ai_base_slider.get_current_value())
+                # 如果有游戏引擎实例，更新运行时权重
+                engine = getattr(self.context, "screen_manager", None)
+                if engine and getattr(engine, "game_engine", None):
+                    ge = engine.game_engine
+                    ge.ai_player_weight = self.context.ai_player_weight
+                    ge.ai_base_weight = self.context.ai_base_weight
+                # 更新显示数值
+                self.ai_player_value.set_text(f"{self.context.ai_player_weight:.2f}")
+                self.ai_base_value.set_text(f"{self.context.ai_base_weight:.2f}")
             elif event.ui_element == self.btn_back:
                 # 返回主菜单
                 self.context.next_state = "menu"
+        elif event.type == pygame_gui.UI_HORIZONTAL_SLIDER_MOVED:
+            if event.ui_element == self.ai_player_slider:
+                self.ai_player_value.set_text(f"{self.ai_player_slider.get_current_value():.2f}")
+            elif event.ui_element == self.ai_base_slider:
+                self.ai_base_value.set_text(f"{self.ai_base_slider.get_current_value():.2f}")
         
     def _apply_display_mode(self, mode):
         """应用显示模式设置"""

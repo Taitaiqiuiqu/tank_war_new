@@ -154,6 +154,7 @@ class GameWorld:
         self.fortify_base_timer = 0
         self.base_fortified = False
         self.original_base_walls = [] # 存储基地周围墙体的原始状态 (x, y, type)
+        self.events: List[Dict] = []  # 供上层消费的游戏事件队列
 
     # ----------------------------------------------------------------------
     # 对象管理
@@ -198,22 +199,33 @@ class GameWorld:
         self.walls.clear()
         self.explosions.clear()
         self.stars.clear()
+        self.events.clear()
+        # 状态重置
         self.game_over = False
         self.winner = None
-        
+        self.spawn_points = {"player": [], "enemy": []}
         # 清理道具
         self.prop_manager.props.empty()
-        
         # 重置道具效果计时器
         self.freeze_enemies_timer = 0
         self.fortify_base_timer = 0
         self.base_fortified = False
         self.original_base_walls = []
-        
         # 清理坦克生命和重生计时器
         self.tank_lives.clear()
         self.tank_info.clear()
         self.respawn_timers.clear()
+
+    # ----------------------------------------------------------------------
+    # 事件队列（供上层如 GameEngine 消费）
+    # ----------------------------------------------------------------------
+    def _push_event(self, event_type: str, payload: Optional[Dict] = None):
+        self.events.append({"type": event_type, "data": payload or {}, "ts": pygame.time.get_ticks()})
+
+    def consume_events(self) -> List[Dict]:
+        copied = list(self.events)
+        self.events.clear()
+        return copied
 
     def enable_debug_overlay(self, enabled: bool = True):
         """开启或关闭调试叠加层（显示对象数量等信息）。"""
@@ -458,11 +470,29 @@ class GameWorld:
             
             # 处理坦克重生
             tank_id = obj.tank_id
+            lives_left = self.tank_lives.get(tank_id, 0)
             if tank_id in self.tank_lives:
                 self.tank_lives[tank_id] -= 1
+                lives_left = self.tank_lives[tank_id]
                 if self.tank_lives[tank_id] > 0:
                     # 还有命，90帧后重生 (3秒)
                     self.respawn_timers[tank_id] = config.RESPAWN_TIME
+
+            # 记录玩家被击败事件（用于触发视频）
+            if obj.tank_type == "player":
+                killer = getattr(obj, "last_hit_by", None)
+                if killer and getattr(killer, "tank_type", None) == "enemy":
+                    self._push_event(
+                        "player_killed_by_enemy",
+                        {"tank_id": tank_id, "killer_id": getattr(killer, "tank_id", None), "position": obj.get_center()},
+                    )
+
+                # 双人联机场景：某玩家生命用尽
+                if lives_left <= 0 and self.game_mode in ("coop", "mixed", "pvp"):
+                    self._push_event(
+                        "player_life_depleted",
+                        {"tank_id": tank_id, "position": obj.get_center()},
+                    )
             
             # 敌人死亡掉落道具 (25%概率)
             if obj.tank_type == "enemy" and random.random() < config.ENEMY_DROP_RATE:
@@ -595,6 +625,10 @@ class GameWorld:
             for tank in list(self.tanks):
                 if tank.tank_type == "enemy" and tank.active:
                     tank.take_damage(config.GRENADE_DAMAGE) # 秒杀
+            self._push_event(
+                "grenade_pickup",
+                {"tank_id": player.tank_id, "position": player.get_center()},
+            )
                     
         elif prop_type == 5: # 五角星 (武器升级)
             # 吃一个：增加射击速度，变成两发炮弹 (Level 1)

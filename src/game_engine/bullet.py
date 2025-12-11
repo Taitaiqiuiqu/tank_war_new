@@ -92,6 +92,8 @@ class Bullet(GameObject):
         if hasattr(other, 'tank_type') or hasattr(other, 'is_wall'):
             # 对目标造成伤害
             if hasattr(other, 'take_damage'):
+                if hasattr(other, "last_hit_by"):
+                    other.last_hit_by = self.owner
                 other.take_damage(self.damage)
             
             # 播放子弹销毁音效

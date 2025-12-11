@@ -53,6 +53,7 @@ class Tank(GameObject):
         self.is_moving = False
         self.move_sound_playing = False
         self.idle_sound_playing = False
+        self.last_hit_by = None  # 记录最后击中该坦克的对象，便于触发视频事件
         
         # 加载坦克图像
         self.images = self._load_tank_images()
