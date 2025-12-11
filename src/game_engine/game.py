@@ -1498,18 +1498,23 @@ class GameEngine:
         # Priority 1: Use preloaded map data (for level mode)
         if preloaded_map_data:
             map_data = preloaded_map_data
-            print(f"使用预加载的地图数据: {map_data.get('name', map_name)}")
+            print(f"[Map] 使用预加载的地图数据: {map_data.get('name', map_name)}")
         # Priority 2: Use received map data from host (for client)
         elif hasattr(self.screen_manager.context, 'received_map_data') and self.screen_manager.context.received_map_data:
             map_data = self.screen_manager.context.received_map_data
-            print(f"使用接收的地图数据: {map_data.get('name', map_name)}")
+            print(f"[Map] 使用接收的地图数据: {map_data.get('name', map_name) if map_data else 'None'}")
             # Clear the received map data to avoid reusing it
             self.screen_manager.context.received_map_data = None
-        # Priority 3: Load from local file
-        elif map_name != "default":
-            map_data = map_loader.load_map(map_name, config.GRID_SIZE)
-            if map_data:
-                print(f"加载联机地图: {map_data.get('name', map_name)}")
+        # Priority 3: Load from local file (for host or if client didn't receive map data)
+        if not map_data:
+            if map_name != "default":
+                map_data = map_loader.load_map(map_name, config.GRID_SIZE)
+                if map_data:
+                    print(f"[Map] 从本地文件加载地图: {map_data.get('name', map_name)}")
+                else:
+                    print(f"[Map] 警告: 无法加载地图 {map_name}，将使用默认地图")
+            else:
+                print(f"[Map] 使用默认地图")
         
         # Default Spawns
         p1_spawn = (self.screen_width // 2 - 100, self.screen_height - 100)
@@ -1741,13 +1746,17 @@ class GameEngine:
                     self._client_prediction['last_pos'] = (prev_x, prev_y)
                     self._client_prediction['current_pos'] = (self.player_tank.x, self.player_tank.y)
                 
-                # 2.5. Update bullets and explosions (for visual effects)
-                # Bullets need to move and check collisions
+                # 2.5. Update game world objects (for visual effects and animations)
+                # Update bullets, explosions, and other game objects
                 for bullet in self.game_world.bullets:
                     bullet.update()
-                # Explosions need to animate
                 for explosion in self.game_world.explosions:
                     explosion.update()
+                for star in self.game_world.stars:
+                    star.update()
+                # Update prop manager if exists
+                if hasattr(self.game_world, 'prop_manager'):
+                    self.game_world.prop_manager.update()
                 
                 # 3. Receive State and Reconcile
                 remote_state = self.network_manager.get_latest_state()
@@ -1797,7 +1806,7 @@ class GameEngine:
                             continue
                         # Apply input to Player 2 (Client)
                         # Find client tank (P2 - Logic ID 2)
-                        client_tank = next((t for t in self.game_world.tanks if t.tank_id == 2), None)
+                        client_tank = next((t for t in self.game_world.tanks if t.tank_id == 2 and t.active), None)
                         if client_tank:
                             move_dir = inp.get("move", -1)
                             # print(f"[Host] Processing input for P2: move={move_dir}")
@@ -1817,7 +1826,20 @@ class GameEngine:
                 if self.current_state == "game" and not self.game_world.game_over:
                     # 应用本地主机的移动输入
                     self._apply_player_direction()
+                    # 更新本地玩家坦克的物理状态（应用移动后的碰撞检测等）
+                    if self.player_tank and self.player_tank.active:
+                        self.player_tank.update()
+                    # 更新客户端坦克的物理状态（应用移动后的碰撞检测等）
+                    client_tank = next((t for t in self.game_world.tanks if t.tank_id == 2 and t.active), None)
+                    if client_tank:
+                        client_tank.update()
+                    # 更新敌人AI（必须在游戏世界更新之前，因为AI会调用move等方法）
                     self._update_enemy_ai()
+                    # 更新所有敌人坦克的物理状态
+                    for tank in self.game_world.tanks:
+                        if tank.tank_type == "enemy" and tank.active:
+                            tank.update()
+                    # 更新游戏世界（处理碰撞、子弹等）
                     self.game_world.update()
                     self._consume_game_events()
                     

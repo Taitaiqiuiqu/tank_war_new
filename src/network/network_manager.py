@@ -170,8 +170,9 @@ class NetworkManager:
                 # Client: Check if we're still receiving data from host
                 current_time = time.time()
                 if hasattr(self, '_last_state_time'):
-                    # If no state received for more than 5 seconds, consider disconnected
-                    if current_time - self._last_state_time > 5.0:
+                    # If no state received for more than 10 seconds, consider disconnected (increased from 5 to 10)
+                    # This gives more tolerance for network delays
+                    if current_time - self._last_state_time > 10.0:
                         print("[Network] Connection timeout - no data received from host")
                         self._handle_disconnect()
                 else:
@@ -181,8 +182,10 @@ class NetworkManager:
                 # Host: Check if client is still responsive
                 current_time = time.time()
                 if hasattr(self, '_last_input_time'):
-                    # If no input received for more than 5 seconds, consider disconnected
-                    if current_time - self._last_input_time > 5.0:
+                    # If no input received for more than 10 seconds, consider disconnected (increased from 5 to 10)
+                    # This gives more tolerance for network delays
+                    # Note: Client may not send input every frame if not moving, so we also check for any activity
+                    if current_time - self._last_input_time > 10.0:
                         print("[Network] Connection timeout - no input received from client")
                         self._handle_disconnect()
                 else:
@@ -517,9 +520,14 @@ class NetworkManager:
                         msg = json.loads(line)
                         msg_type = msg.get("type")
                         
-                        # Update last state time for timeout detection
-                        if msg_type == "state":
+                        # Update last state time for timeout detection (any message indicates connection is alive)
+                        # This prevents false disconnections when host sends non-state messages
+                        if hasattr(self, '_last_state_time'):
                             self._last_state_time = time.time()
+                        else:
+                            self._last_state_time = time.time()
+                        
+                        if msg_type == "state":
                             self._incoming_state.put(msg)
                         else:
                             # 所有非状态消息统一放入事件队列，避免大厅更新等被丢弃
@@ -557,9 +565,14 @@ class NetworkManager:
                         msg = json.loads(line)
                         msg_type = msg.get("type")
                         
-                        # Update last input time for timeout detection
-                        if msg_type == "input":
+                        # Update last input time for timeout detection (any message indicates connection is alive)
+                        # This prevents false disconnections when client sends non-input messages
+                        if hasattr(self, '_last_input_time'):
                             self._last_input_time = time.time()
+                        else:
+                            self._last_input_time = time.time()
+                        
+                        if msg_type == "input":
                             self._incoming_input.put(msg)
                         elif msg_type in ("lobby_update", "map_selection", "ready_state"):
                             self._incoming_input.put(msg)

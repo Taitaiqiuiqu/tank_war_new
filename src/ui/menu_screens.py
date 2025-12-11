@@ -1125,6 +1125,10 @@ class RoomScreen(BaseScreen):
             self.btn_start.hide()
         else:
             self.btn_start.disable()
+        
+        # 房主进入房间时，立即发送自己的坦克选择给客户端
+        if hasattr(self, 'network_manager') and self.context.is_host and self.network_manager.stats.connected:
+            self.network_manager.send_lobby_update(self.local_tank_id)
 
     def _load_available_maps(self):
         """加载可用地图列表"""
@@ -1264,6 +1268,8 @@ class RoomScreen(BaseScreen):
                                 self.remote_tank_id = payload["tank_id"]
                                 self.context.enemy_tank_id = self.remote_tank_id
                                 self._update_images()
+                                # 房主收到客户端的坦克选择后，将自己的坦克选择发送给客户端（确保同步）
+                                self.network_manager.send_lobby_update(self.local_tank_id)
                         elif msg.get("type") == "ready_state":
                             payload = msg.get("payload")
                             if payload is not None:
