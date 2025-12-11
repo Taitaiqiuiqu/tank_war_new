@@ -1610,27 +1610,18 @@ class GameEngine:
                 p2_spawn = (p1_spawn[0] + 100, p1_spawn[1])
             
             enemy_spawns = map_data.get('enemy_spawns', [])
-            # 如果地图未提供敌人出生点，使用默认的多个出生点，避免联机模式无敌人
-            if not enemy_spawns:
-                enemy_spawns = default_enemy_spawns
-            
-            # 处理所有敌人出生点，但不超过最大活跃敌人数量限制
+            # 预处理敌人出生点并应用偏移，确保变量始终存在
             processed_enemy_spawns = []
-            max_enemies = min(len(enemy_spawns), config.MAX_ACTIVE_ENEMIES)
-            # 如果仍然没有可用出生点，兜底至少生成1个默认点
-            if max_enemies == 0:
-                enemy_spawns = default_enemy_spawns
-                max_enemies = min(len(enemy_spawns), config.MAX_ACTIVE_ENEMIES)
-            for i in range(max_enemies):
-                enemy_spawn = tuple(enemy_spawns[i])
-                enemy_spawn = (enemy_spawn[0] + offset_x, enemy_spawn[1] + offset_y)
-                processed_enemy_spawns.append(enemy_spawn)
+            if enemy_spawns:
+                processed_enemy_spawns = [ (e[0] + offset_x, e[1] + offset_y) for e in enemy_spawns ]
+                enemy_spawn = processed_enemy_spawns[0]
+            else:
+                processed_enemy_spawns = default_enemy_spawns
+                enemy_spawn = processed_enemy_spawns[0]
             
-            # Apply offset to spawn points
+            # Apply offset to player spawn points
             p1_spawn = (p1_spawn[0] + offset_x, p1_spawn[1] + offset_y)
             p2_spawn = (p2_spawn[0] + offset_x, p2_spawn[1] + offset_y)
-            # 保留第一个敌人出生点作为向后兼容（用于其他模式）
-            enemy_spawn = processed_enemy_spawns[0] if processed_enemy_spawns else (self.screen_width // 2 - 15, 50)
         else:
             # 没有地图数据时，使用默认的多个敌人出生点
             processed_enemy_spawns = default_enemy_spawns
@@ -1892,33 +1883,38 @@ class GameEngine:
                     # Server reconciliation: check if our prediction was correct
                     my_tank_data = remote_state.get('my_tank')
                     if my_tank_data and self.player_tank:
-                        server_x = my_tank_data['x']
-                        server_y = my_tank_data['y']
-                        local_x = self.player_tank.x
-                        local_y = self.player_tank.y
-                        
-                        # Calculate prediction error
-                        error = ((server_x - local_x)**2 + (server_y - local_y)**2)**0.5
-                        
-                        # Only correct if error is significant to reduce jitter
-                        if error > 2:  # Reduced threshold for more responsive correction
-                            # If error is HUGE, it's a teleport/respawn
-                            if error > 30:  # Reduced threshold for teleport detection
-                                self.player_tank.x = server_x
-                                self.player_tank.y = server_y
-                                self.player_tank.rect.topleft = (server_x, server_y)
-                                # Reset velocity to prevent continued drift
-                                if hasattr(self.player_tank, 'vx'):
-                                    self.player_tank.vx = 0
-                                if hasattr(self.player_tank, 'vy'):
-                                    self.player_tank.vy = 0
-                            else:
-                                # Adaptive correction based on error magnitude
-                                # Larger errors get stronger correction
-                                alpha = min(0.5, max(0.1, error / 20))
-                                self.player_tank.x = local_x + (server_x - local_x) * alpha
-                                self.player_tank.y = local_y + (server_y - local_y) * alpha
-                                self.player_tank.rect.topleft = (self.player_tank.x, self.player_tank.y)
+                        # 有些状态包在坦克死亡/未生成时可能缺少坐标字段，需防御处理
+                        server_x = my_tank_data.get('x')
+                        server_y = my_tank_data.get('y')
+                        if server_x is None or server_y is None:
+                            # 坐标缺失时跳过矫正，等待下一帧完整状态
+                            pass
+                        else:
+                            local_x = self.player_tank.x
+                            local_y = self.player_tank.y
+                            
+                            # Calculate prediction error
+                            error = ((server_x - local_x)**2 + (server_y - local_y)**2)**0.5
+                            
+                            # Only correct if error is significant to reduce jitter
+                            if error > 2:  # Reduced threshold for more responsive correction
+                                # If error is HUGE, it's a teleport/respawn
+                                if error > 30:  # Reduced threshold for teleport detection
+                                    self.player_tank.x = server_x
+                                    self.player_tank.y = server_y
+                                    self.player_tank.rect.topleft = (server_x, server_y)
+                                    # Reset velocity to prevent continued drift
+                                    if hasattr(self.player_tank, 'vx'):
+                                        self.player_tank.vx = 0
+                                    if hasattr(self.player_tank, 'vy'):
+                                        self.player_tank.vy = 0
+                                else:
+                                    # Adaptive correction based on error magnitude
+                                    # Larger errors get stronger correction
+                                    alpha = min(0.5, max(0.1, error / 20))
+                                    self.player_tank.x = local_x + (server_x - local_x) * alpha
+                                    self.player_tank.y = local_y + (server_y - local_y) * alpha
+                                    self.player_tank.rect.topleft = (self.player_tank.x, self.player_tank.y)
                     
                     # Apply state for other entities (other players, bullets, etc.)
                     self.state_manager.decode_state(remote_state)

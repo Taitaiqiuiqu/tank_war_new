@@ -207,7 +207,9 @@ class NetworkManager:
                     self._reconnect_attempt = None
     
     def _handle_disconnect(self):
-        """Handle disconnection"""
+        """Handle disconnection without losing role/state for the game loop"""
+        previous_role = self.stats.role  # Preserve role so host/client logic keeps running
+        
         if self._conn:
             try:
                 self._conn.close()
@@ -216,11 +218,20 @@ class NetworkManager:
             self._conn = None
         
         self.stats.connected = False
-        self.stats.role = "none"
+        # Keep host/client role; avoid resetting to an invalid state that stops the game loop
+        if previous_role in ("host", "client"):
+            self.stats.role = previous_role
         
-        # Initialize reconnection attempts
-        self._reconnect_attempt = 0
-        self._last_reconnect_time = time.time()
+        # Only clients should attempt reconnection; hosts keep listening normally
+        if previous_role == "client" and hasattr(self, "_last_host_ip"):
+            self._reconnect_attempt = 0
+            self._last_reconnect_time = time.time()
+        else:
+            # Remove reconnection state to avoid spurious attempts for host
+            if hasattr(self, "_reconnect_attempt"):
+                delattr(self, "_reconnect_attempt")
+            if hasattr(self, "_last_reconnect_time"):
+                delattr(self, "_last_reconnect_time")
         
         # Clear queues
         self._incoming_state.queue.clear()
