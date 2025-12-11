@@ -1799,6 +1799,30 @@ class GameEngine:
                     
                     # 消费同步的事件（用于触发视频播放等客户端效果）
                     self._consume_game_events()
+                    
+                    # 检查游戏是否结束（客户端）
+                    if self.game_world.game_over:
+                        if self._check_game_over():
+                            # 游戏结束，停止所有音效
+                            pygame.mixer.stop()
+                            self._play_game_over_video()
+                            # 设置游戏结果并显示游戏结束屏幕
+                            winner = self.game_world.winner
+                            if self.multiplayer_game_mode == "pvp":
+                                # PvP模式：根据本地玩家ID判断是否获胜
+                                is_host = self.network_manager.stats.role == "host"
+                                local_player_key = "player1" if is_host else "player2"
+                                self.screen_manager.context.game_won = (winner == local_player_key)
+                            elif self.multiplayer_game_mode == "mixed":
+                                # 混战模式：根据本地玩家ID判断是否获胜
+                                is_host = self.network_manager.stats.role == "host"
+                                local_player_key = "player1" if is_host else "player2"
+                                self.screen_manager.context.game_won = (winner == local_player_key)
+                            else:
+                                # 合作模式和关卡模式：winner为"player"表示获胜
+                                self.screen_manager.context.game_won = (winner == "player")
+                            # 通知屏幕管理器切换到游戏结束屏幕
+                            self.screen_manager.set_state("game_over")
                 
             elif role == "host":
                 # Host: Receive Inputs -> Update Physics -> Send State
@@ -2449,6 +2473,25 @@ class GameEngine:
         self.game_world.reset()
         self.enemy_controllers.clear()
         self._movement_stack.clear()
+        
+        # 清理状态管理器
+        if hasattr(self.state_manager, 'latest_snapshot'):
+            self.state_manager.latest_snapshot = None
+        if hasattr(self.state_manager, '_captured_events'):
+            self.state_manager._captured_events = []
+        if hasattr(self.state_manager, 'pending_remote_state'):
+            self.state_manager.pending_remote_state = None
+        
+        # 清理视频管理器
+        if hasattr(self, 'video_manager'):
+            self.video_manager._stop_active()
+        
+        # 清理上下文状态
+        if hasattr(self.screen_manager, 'context'):
+            if hasattr(self.screen_manager.context, 'game_won'):
+                self.screen_manager.context.game_won = False
+            if hasattr(self.screen_manager.context, 'next_level'):
+                self.screen_manager.context.next_level = None
         
         # 切换到菜单状态
         self.current_state = "menu"

@@ -275,6 +275,11 @@ class GameOverScreen(BaseScreen):
         if engine and hasattr(engine, "_exit_to_menu"):
             engine._exit_to_menu()
         else:
+            # 清理游戏状态
+            if hasattr(self.context, 'game_won'):
+                self.context.game_won = False
+            if hasattr(self.context, 'next_level'):
+                self.context.next_level = None
             self.context.next_state = "menu"
 
 
