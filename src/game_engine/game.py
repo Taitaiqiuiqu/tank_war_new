@@ -1096,8 +1096,15 @@ class GameEngine:
         self.game_world = GameWorld(game_world_width, game_world_height)
         self.state_manager.attach_world(self.game_world)
         video_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "videos"))
+        # 验证视频目录是否存在
+        if not os.path.exists(video_dir):
+            print(f"[Video] 警告：视频目录不存在: {video_dir}")
+        else:
+            print(f"[Video] 视频目录: {video_dir}")
         self.video_manager = VideoPlaybackController(video_dir)
         # 后台预加载视频与音频，减少首次播放卡顿
+        # 注意：在客户端模式下，预加载可能在线程中进行，会使用占位符
+        # 实际视频会在主线程中按需加载
         self.video_manager.preload_all(async_load=True)
         
         # 宽高比适配相关
@@ -1694,6 +1701,16 @@ class GameEngine:
         """更新游戏状态"""
         now_ms = pygame.time.get_ticks()
         self.video_manager.update(now_ms)
+        
+        # 定期尝试重新加载失败的视频资源（复加载机制）
+        # 每5秒检查一次，避免过于频繁
+        if not hasattr(self, '_last_reload_check'):
+            self._last_reload_check = now_ms
+        elif now_ms - self._last_reload_check > 5000:  # 5秒
+            self._last_reload_check = now_ms
+            # 只在主线程中执行（update 在主线程中）
+            self.video_manager.reload_failed_assets()
+        
         # 如果暂停，只更新UI管理器，跳过游戏逻辑
         if self.paused:
             # 更新UI管理器以处理暂停菜单
@@ -1958,6 +1975,14 @@ class GameEngine:
             self.current_state = self.screen_manager.current_state
             
             if self.current_state == "game":
+                # 在游戏开始前，尝试同步预加载关键视频（如果还未完成）
+                # 这可以确保视频在需要时已准备好
+                if not self.video_manager._preload_completed:
+                    status = self.video_manager.get_preload_status()
+                    if status["progress"] < 0.5:  # 如果加载进度小于50%，尝试同步预加载
+                        print("[Video] 游戏开始前同步预加载视频...")
+                        self.video_manager.preload_all_sync()
+                
                 # Initialize Game World
                 mode = self.screen_manager.context.game_mode
                 if mode == "single":
