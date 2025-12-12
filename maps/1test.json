@@ -1,0 +1,143 @@
+{
+  "name": "1test",
+  "original_width": 1400,
+  "original_height": 1050,
+  "aspect_ratio": 1.3333333333333333,
+  "grid_size": 50,
+  "wall_grid_data": [
+    {
+      "grid_x": 7,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 8,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 9,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 10,
+      "grid_y": 1,
+      "type": 1
+    },
+    {
+      "grid_x": 7,
+      "grid_y": 2,
+      "type": 2
+    },
+    {
+      "grid_x": 8,
+      "grid_y": 2,
+      "type": 2
+    },
+    {
+      "grid_x": 9,
+      "grid_y": 2,
+      "type": 2
+    },
+    {
+      "grid_x": 10,
+      "grid_y": 2,
+      "type": 2
+    },
+    {
+      "grid_x": 7,
+      "grid_y": 3,
+      "type": 3
+    },
+    {
+      "grid_x": 8,
+      "grid_y": 3,
+      "type": 3
+    },
+    {
+      "grid_x": 9,
+      "grid_y": 3,
+      "type": 3
+    },
+    {
+      "grid_x": 10,
+      "grid_y": 3,
+      "type": 3
+    },
+    {
+      "grid_x": 7,
+      "grid_y": 4,
+      "type": 4
+    },
+    {
+      "grid_x": 8,
+      "grid_y": 4,
+      "type": 4
+    },
+    {
+      "grid_x": 9,
+      "grid_y": 4,
+      "type": 4
+    },
+    {
+      "grid_x": 10,
+      "grid_y": 4,
+      "type": 4
+    },
+    {
+      "grid_x": 15,
+      "grid_y": 20,
+      "type": 5
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 20,
+      "type": 1
+    },
+    {
+      "grid_x": 14,
+      "grid_y": 19,
+      "type": 1
+    },
+    {
+      "grid_x": 15,
+      "grid_y": 19,
+      "type": 1
+    },
+    {
+      "grid_x": 16,
+      "grid_y": 19,
+      "type": 1
+    },
+    {
+      "grid_x": 16,
+      "grid_y": 20,
+      "type": 1
+    }
+  ],
+  "player_spawns_grid": [
+    [
+      13,
+      20
+    ],
+    [
+      17,
+      20
+    ]
+  ],
+  "enemy_spawns_grid": [
+    [
+      0,
+      0
+    ],
+    [
+      14,
+      0
+    ],
+    [
+      27,
+      0
+    ]
+  ]
+}

@@ -50,7 +50,7 @@ class GameConfig:
     TANK_DEFAULT_LIVES = 3
     
     # 所有敌人坦克默认生命数
-    ENEMY_TANK_DEFAULT_LIVES = 1
+    ENEMY_TANK_DEFAULT_LIVES = 2
     
     # 最大活跃敌人数量限制
     MAX_ACTIVE_ENEMIES = 3

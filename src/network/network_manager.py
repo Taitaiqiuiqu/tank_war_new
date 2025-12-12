@@ -193,7 +193,7 @@ class NetworkManager:
                     self._last_input_time = current_time
         
         # Attempt reconnection if disconnected
-        if not self.stats.connected and hasattr(self, '_reconnect_attempt'):
+        if not self.stats.connected and hasattr(self, '_reconnect_attempt') and self._reconnect_attempt is not None:
             current_time = time.time()
             # Try to reconnect every 3 seconds
             if current_time - self._last_reconnect_time > 3.0:
